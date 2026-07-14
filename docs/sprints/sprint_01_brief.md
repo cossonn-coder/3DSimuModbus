@@ -14,11 +14,14 @@ carrousel a palettes et lit ses retours, via une table d'echange conforme au piv
 **Ce sprint ne cherche PAS** : le realisme mecanique, l'ergonomie, l'ingestion des
 fichiers sources. Uniquement le squelette runtime + le dialogue Modbus.
 
-## Rappel machine (pivot v0.2)
+## Rappel machine (pivot schema 0.2.0)
 
-Carrousel a palettes : 1 convoyeur circulaire (moteur `KM1`), 2 verins bloqueurs
-**monostables** (`YV1`, `YV2`), capteurs de presence (`B1`, `B2`), retour marche
-moteur (`KM1_AUX`, ex-`B3`). Cinematique **scriptee** (pas de physique).
+Carrousel a palettes : 1 convoyeur circulaire (rayon 1.5 m, 3 palettes, moteur `KM1`,
+20 deg/s), 2 postes de blocage a **90 deg** et **270 deg** avec verins bloqueurs
+**monostables** (`YV1`, `YV2`, course 0.15 m, `travel_time_ms`=500), capteurs de
+presence palette (`B1`, `B2`, fenetre 8 deg), retour marche moteur (`KM1_AUX`, ex-`B3`).
+Cinematique **scriptee** (pas de physique) ; palettes = positions angulaires avec
+accumulation (`min_gap_deg`=20).
 
 ## Rappel Modbus (contrat fige en Phase 0)
 
@@ -26,29 +29,30 @@ moteur (`KM1_AUX`, ex-`B3`). Cinematique **scriptee** (pas de physique).
 - M580 = **client**, scrute via I/O Scanner : **FC3** lit la zone `ret`, **FC16** ecrit
   la zone `cmd`. Pas de FC23 en V1.
 - `%MWn` = holding register protocole `n`, **aucun decalage**.
-- 2 zones, base `%MW` configurable (`MW_CMD_BASE`=0, `MW_RET_BASE`=100 par defaut).
+- 2 zones a base configurable : `cmd` base `%MW100` (1 mot), `ret` base `%MW200` (2 mots).
 - Adressage **relatif** `{zone, word, bit}` — jamais d'adresse absolue en dur.
-- **Heartbeat** = mot 0 de `ret`, +1 toutes les 100 ms.
+- **Heartbeat** = mot 0 de `ret` (`%MW200`), +1 toutes les 100 ms.
 
-### Table d'echange cible (bases par defaut)
+### Table d'echange cible
 
-**Zone `cmd` (PLC → sim, FC16, base %MW0)**
-| Mot | Bit | Repere | Signification |
+**Zone `cmd` (PLC → sim, FC16, base %MW100)**
+| %MW | Bit | Signal | Signification |
 |-----|-----|--------|---------------|
-| 0 | 0 | KM1 | marche convoyeur |
-| 0 | 1 | YV1 | bloqueur 1 sorti (0 = rappel ressort) |
-| 0 | 2 | YV2 | bloqueur 2 sorti (0 = rappel ressort) |
-| 1 | — | SPD_CMD | consigne vitesse convoyeur (0.1 deg/s) |
+| 100 | 0 | KM1.cmd_run | marche convoyeur |
+| 100 | 1 | YV1.cmd_extend | verin 1 sorti (0 = rappel ressort) |
+| 100 | 2 | YV2.cmd_extend | verin 2 sorti (0 = rappel ressort) |
 
-**Zone `ret` (sim → PLC, FC3, base %MW100)**
-| Mot | Bit | Repere | Signification |
-|-----|-----|--------|---------------|
-| 0 | — | HB_RET | heartbeat (+1 / 100 ms) |
-| 1 | 0 | B1 | presence palette bloqueur 1 |
-| 1 | 1 | B2 | presence palette bloqueur 2 |
-| 1 | 2 | KM1_AUX | retour marche moteur convoyeur |
-| 2 | — | POS_RET | position angulaire convoyeur (0.1 deg) |
-| 3 | — | CNT_RET | compteur palettes |
+**Zone `ret` (sim → PLC, FC3, base %MW200)**
+| %MW | Bit | Tag | Signification |
+|-----|-----|-----|---------------|
+| 200 | — | HEARTBEAT | compteur +1 / 100 ms, rollover 16 bits |
+| 201 | 0 | S11 | verin 1 rentre |
+| 201 | 1 | S12 | verin 1 sorti |
+| 201 | 2 | S21 | verin 2 rentre |
+| 201 | 3 | S22 | verin 2 sorti |
+| 201 | 4 | B1 | presence palette poste 1 (90 deg) |
+| 201 | 5 | B2 | presence palette poste 2 (270 deg) |
+| 201 | 6 | KM1_AUX | retour marche moteur convoyeur |
 
 ## Livrables du sprint
 
@@ -94,13 +98,14 @@ blocage. Documenter dans `NOTES_sprint_01.md`.
 ## Definition of Done
 
 - [ ] `machine_carrousel.json` charge sans erreur ; un JSON malforme echoue proprement.
-- [ ] Le testbench Python ecrit `KM1=1` (FC16) → le heartbeat progresse, `KM1_AUX`
-      passe a 1, `POS_RET` augmente ; `KM1=0` → `POS_RET` se fige.
-- [ ] `YV1=1` (FC16) → apres `travel_time_ms`, l'etat bloqueur reflete la sortie ;
-      `YV1=0` → rappel ressort (monostable) verifie.
+- [x] Testbench : loader pivot + tests unitaires du contrat (17 verts, 4 skip).
+- [ ] `cmd_run=1` (FC16) → heartbeat progresse et `KM1_AUX` passe a 1 apres
+      `feedback_delay_ms` ; `cmd_run=0` → `KM1_AUX` retombe.
+- [ ] `cylinder_1.cmd_extend=1` → apres `travel_time_ms`, `S12`=1 et `S11`=0 ;
+      `=0` → rappel ressort (monostable) : `S11`=1, `S12`=0. Idem verin 2 (`S21`/`S22`).
 - [ ] `B1`/`B2` refletent la presence palette selon la position simulee.
 - [ ] Heartbeat incremente ~10x/s, rollover propre a 65535.
 - [ ] POC D-001 documente ; strategie thread-safe retenue ecrite dans les NOTES.
-- [ ] Scene 3D statique affiche convoyeur + bloqueurs + palettes.
+- [ ] Scene 3D statique affiche convoyeur (anneau) + 2 bloqueurs + 3 palettes.
 - [ ] (Si dispo) M580 reel scrute l'app via I/O Scanner 2 lignes, echanges coherents.
 - [ ] `docs/notes/NOTES_sprint_01.md` redige ; journal/backlog/dettes a jour.

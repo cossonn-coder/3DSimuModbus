@@ -1,0 +1,16 @@
+<Project Sdk="Godot.NET.Sdk/4.6.0">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <!-- Code defensif : on active le nullable pour attraper tot les references nulles
+         (JSON pivot incomplet, buffers non initialises). -->
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Serveur Modbus TCP. Version a figer apres le POC D-001 (comportement
+         thread-safe reel a valider). -->
+    <PackageReference Include="FluentModbus" Version="5.*" />
+  </ItemGroup>
+</Project>
