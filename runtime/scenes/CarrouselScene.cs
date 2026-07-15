@@ -30,6 +30,7 @@
 // (CsgCombiner3D) : 2 primitives, une soustraction — simple, et fidele aux 3 cotes du pivot
 // (inner_radius_m / outer_radius_m / height_m). Partout ailleurs, un mesh primitif suffit (D-b).
 
+using System.Globalization;
 using System.IO;
 using System.Net;
 using CarrouselCore;
@@ -76,6 +77,29 @@ public partial class CarrouselScene : Node3D
     // Godot AVANT _Ready (valeur figee dans la .tscn ou l'inspecteur), d'ou l'attribut [Export].
     [Export] public bool BindLoopback { get; set; } = false;
 
+    // Sonde de diagnostic (S2.2) : quand true, chaque frame physique imprime l'etat anime (heartbeat,
+    // altitude des tiges, angles des palettes). Sert UNIQUEMENT au smoke-test headless a observer le
+    // mouvement sans oeil humain ; false par defaut (aucun bruit en usage normal). Lu par Godot avant
+    // _Ready (valeur figee dans la .tscn), d'ou [Export].
+    [Export] public bool DiagAnim { get; set; } = false;
+
+    // --- Reflet visuel (S2.2) : references capturees au build ------------------------------------
+    // On memorise a _Ready les noeuds que la simulation anime, pour n'appeler AUCUN GetNode par frame
+    // (ApplyToScene tourne 60 fois/s). Les tiges bougent en +Y (course du verin), les palettes se
+    // repositionnent sur le cercle. Chaque tige est routee par id pivot vers le meme indice que la sim
+    // (Cylinder1/Cylinder2), car l'ordre d'iteration du dictionnaire de composants n'est pas garanti.
+    private MeshInstance3D _rod1 = null!;
+    private MeshInstance3D _rod2 = null!;
+    private float _restY1, _restY2;     // altitude de la tige RENTREE (Position.Y initial, pos 0)
+    private float _stroke1, _stroke2;   // course stroke_m : deplacement +Y a pleine extension (pos 1)
+
+    // Palettes + parametres du cercle (radius/center/y), memorises pour rejouer OnCircle chaque frame
+    // avec EXACTEMENT le repere de la brique 5 (coherence de repere garantie).
+    private MeshInstance3D[] _pallets = null!;
+    private float _palletRadius;
+    private Vector3 _palletCenter;
+    private float _palletY;
+
     public override void _Ready()
     {
         // Chargement defensif : PivotModel.Load leve PivotException (message clair) si le contrat
@@ -100,8 +124,14 @@ public partial class CarrouselScene : Node3D
             cylinders++;
         }
 
-        // 3. Palettes : boites posees sur l'anneau a leurs positions initiales (statique ce sprint).
+        // 3. Palettes : boites posees sur l'anneau a leurs positions initiales (animees en S2.2).
         var size = new Vector3((float)k.PalletSizeM[0], (float)k.PalletSizeM[1], (float)k.PalletSizeM[2]);
+        // On memorise ici les invariants du cercle (radius/center/altitude) une seule fois : ApplyToScene
+        // (S2.2) rejouera OnCircle chaque frame avec ces memes valeurs -> repere identique a la brique 5.
+        _pallets = new MeshInstance3D[k.InitialPositionsDeg.Length];
+        _palletRadius = (float)k.RadiusM;
+        _palletCenter = center;
+        _palletY = ringTopY + size.Y / 2f;   // meme altitude que BuildPallet (boite posee sur l'anneau)
         for (int i = 0; i < k.InitialPositionsDeg.Length; i++)
             BuildPallet(i, k.InitialPositionsDeg[i], (float)k.RadiusM, center, ringTopY, size);
 
@@ -176,11 +206,43 @@ public partial class CarrouselScene : Node3D
 
     /// <summary>
     /// Applique l'etat de la simulation a la geometrie 3D (position des tiges de verin, des palettes).
-    /// STUB VIDE en S2.1 : aucun acces au scene tree encore — le mapping visuel est le sous-sprint S2.2.
+    /// Mapping LECTURE SEULE : on ne lit que l'etat DEJA publie par <see cref="_sim"/> (thread principal,
+    /// frontiere Arch A), jamais le datastore. Snap 10 Hz : recopie directe de l'etat courant, sans
+    /// interpolation (decision D-d ; l'interpolation prev/current est ajoutable en V2 sans toucher la sim).
     /// </summary>
     private void ApplyToScene()
     {
-        // Corps livre en S2.2 (cinematique visuelle). Rien a faire ce sous-sprint.
+        // --- Tiges : translation sur +Y proportionnelle a la position 0..1 du verin ---------------
+        // Position=0 -> tige RENTREE (restY, ressort au repos) ; Position=1 -> tige SORTIE (restY+stroke).
+        // On ne touche QUE l'altitude : x/z de la tige (locale, au centre du fut) restent inchanges.
+        _rod1.Position = new Vector3(_rod1.Position.X, _restY1 + (float)_sim.Cylinder1.Position * _stroke1, _rod1.Position.Z);
+        _rod2.Position = new Vector3(_rod2.Position.X, _restY2 + (float)_sim.Cylinder2.Position * _stroke2, _rod2.Position.Z);
+
+        // --- Palettes : reposition sur le cercle via le MEME helper que la brique 5 (repere garanti) ---
+        // AnglesDeg est dans l'ordre des indices (meme indice qu'a la construction). RotationDegrees
+        // aligne cosmetiquement la face de la boite sur le rayon (RotateY(theta), comme au build).
+        var angles = _sim.Pallets.AnglesDeg;
+        for (int i = 0; i < _pallets.Length; i++)
+        {
+            double angle = angles[i];
+            _pallets[i].Position = OnCircle(angle, _palletRadius, _palletCenter, _palletY);
+            _pallets[i].RotationDegrees = new Vector3(0, (float)angle, 0);
+        }
+
+        // Sonde de diagnostic (headless) : une ligne par frame, cadre invariant (jamais de virgule
+        // decimale francaise) pour que le smoke-test parse Y et angles de façon fiable. Muette par defaut.
+        if (DiagAnim)
+        {
+            var sb = new System.Text.StringBuilder();
+            sb.AppendFormat(CultureInfo.InvariantCulture, "[anim] hb={0} rod1Y={1:F5} rod2Y={2:F5} pallets=",
+                _sim.Heartbeat, _rod1.Position.Y, _rod2.Position.Y);
+            for (int i = 0; i < angles.Count; i++)
+            {
+                if (i > 0) sb.Append(',');
+                sb.AppendFormat(CultureInfo.InvariantCulture, "{0:F3}", angles[i]);
+            }
+            GD.Print(sb.ToString());
+        }
     }
 
     /// <summary>
@@ -279,6 +341,12 @@ public partial class CarrouselScene : Node3D
         node.AddChild(body);
         node.AddChild(rod);
         AddChild(node);
+
+        // S2.2 : memoriser la tige et sa course pour l'animer chaque frame (zero GetNode a l'execution).
+        // Routage explicite par id pivot : on garantit que _rod1/_rod2 correspondent bien a
+        // Cylinder1/Cylinder2 de la simulation, independamment de l'ordre d'iteration du dictionnaire.
+        if (cyl.Id == "cylinder_1") { _rod1 = rod; _restY1 = rod.Position.Y; _stroke1 = stroke; }
+        else if (cyl.Id == "cylinder_2") { _rod2 = rod; _restY2 = rod.Position.Y; _stroke2 = stroke; }
     }
 
     /// <summary>Palette : boite posee sur l'anneau, orientee sur le rayon (alignement cosmetique).</summary>
@@ -294,6 +362,7 @@ public partial class CarrouselScene : Node3D
             MaterialOverride = SolidMat(new Color(0.80f, 0.55f, 0.25f)),
         };
         AddChild(pallet);
+        _pallets[index] = pallet;   // S2.2 : ref capturee pour animer la palette sans GetNode par frame
     }
 
     /// <summary>
