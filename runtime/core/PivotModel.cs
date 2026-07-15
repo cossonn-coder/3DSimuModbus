@@ -41,12 +41,18 @@ public readonly record struct ZoneLayout(string Name, int Base, int SizeWords, s
 /// Cinematique des palettes, resolue depuis le bloc <c>kinematics</c> du pivot (brique 4b).
 /// Purement descriptive : le PivotModel transporte les nombres, c'est <c>PalletSet</c> qui les
 /// anime. <c>Ccw</c> vient de <c>kinematics.path.direction</c> (sens de rotation du convoyeur).
+/// Les trois derniers champs (geometrie du cercle et taille des palettes) alimentent la SCENE 3D
+/// (brique 5) : ils n'interviennent pas dans la simulation, mais viennent du meme contrat pivot
+/// pour qu'aucune coordonnee de rendu ne soit codee en dur.
 /// </summary>
 public readonly record struct KinematicsInfo(
     int PalletCount,                    // nombre de palettes (kinematics.pallets.count)
     double[] InitialPositionsDeg,       // positions angulaires de depart, normalisees [0..360)
     double MinGapDeg,                   // ecart angulaire minimal en accumulation
-    bool Ccw);                          // true = rotation trigonometrique (angle croissant)
+    bool Ccw,                           // true = rotation trigonometrique (angle croissant)
+    double RadiusM,                     // rayon du cercle de circulation (kinematics.path.radius_m) — rendu
+    double[] Center,                    // centre du cercle [x,y,z] en metres (kinematics.path.center) — rendu
+    double[] PalletSizeM);              // dimensions d'une palette [x,y,z] en metres (kinematics.pallets.size_m) — rendu
 
 /// <summary>Un signal resolu, pret a etre interroge sur le bus (adresse absolue calculee).</summary>
 public readonly record struct Signal(
@@ -101,15 +107,24 @@ public sealed class Component
     // ici — ils relevent d'autres briques (rendu 3D) ou d'un comportement deja acte.
     public IReadOnlyDictionary<string, double> Params { get; }
 
+    // Bloc "render" du composant (brique 5), resolu comme Params mais depuis la cle "render" :
+    // dimensions purement graphiques que la cinematique IGNORE (ex. l'anneau du convoyeur :
+    // inner_radius_m / outer_radius_m / height_m). Separe de Params pour ne pas melanger
+    // « nombres qui pilotent la physique » et « nombres qui pilotent le mesh ». Vide si le
+    // composant n'a pas de bloc render (cas des verins/capteurs, dont le rendu se deduit de leurs params).
+    public IReadOnlyDictionary<string, double> Render { get; }
+
     public Component(string id, string tag, string type,
                      IReadOnlyDictionary<string, Signal> signals,
-                     IReadOnlyDictionary<string, double> parameters)
+                     IReadOnlyDictionary<string, double> parameters,
+                     IReadOnlyDictionary<string, double> render)
     {
         Id = id;
         Tag = tag;
         Type = type;
         Signals = signals;
         Params = parameters;
+        Render = render;
     }
 
     /// <summary>
@@ -121,6 +136,16 @@ public sealed class Component
         => Params.TryGetValue(name, out var v)
             ? v
             : throw new PivotException($"{Id} n'a pas de parametre '{name}'");
+
+    /// <summary>
+    /// Lit une dimension de rendu du bloc <c>render</c> (brique 5). Meme contrat defensif que
+    /// <see cref="GetParam"/> : une dimension attendue par la scene 3D mais absente du pivot est
+    /// une incoherence de contrat — on echoue clairement plutot que de dessiner une geometrie fausse.
+    /// </summary>
+    public double GetRender(string name)
+        => Render.TryGetValue(name, out var v)
+            ? v
+            : throw new PivotException($"{Id} n'a pas de dimension de rendu '{name}'");
 }
 
 /// <summary>Vue resolue du pivot : zones, composants, index par tag, heartbeat.</summary>
@@ -303,8 +328,9 @@ public sealed class PivotModel
                     }
                 }
 
-                var prms = ResolveParams(compRaw);
-                var comp = new Component(compId, compTag, GetString(compRaw, "type", ""), sigs, prms);
+                var prms = ResolveNumericMap(compRaw, "params");
+                var render = ResolveNumericMap(compRaw, "render");   // bloc "render" (brique 5), vide si absent
+                var comp = new Component(compId, compTag, GetString(compRaw, "type", ""), sigs, prms, render);
                 components[compId] = comp;
                 byTag[compTag] = comp;
             }
@@ -393,15 +419,16 @@ public sealed class PivotModel
     }
 
     /// <summary>
-    /// Extrait les params machine numeriques d'un composant (bloc "params"). Ne retient que les
-    /// scalaires nombres (double) ; ignore silencieusement bool/tableau/objet (ex. monostable,
-    /// size_m) qui ne concernent pas la cinematique. Bloc "params" absent = dictionnaire vide
-    /// (un capteur sans param est legitime) — c'est GetParam qui echoue si un param requis manque.
+    /// Extrait les scalaires numeriques d'un bloc nomme d'un composant (<c>params</c> ou
+    /// <c>render</c>). Ne retient que les nombres (double) ; ignore silencieusement bool/tableau/objet
+    /// (ex. <c>monostable</c>, <c>size_m</c>) qui ne sont pas des scalaires. Bloc absent = dictionnaire
+    /// vide (un capteur sans param, un composant sans render sont legitimes) — c'est GetParam/GetRender
+    /// qui echoue si une cle requise manque au point d'usage.
     /// </summary>
-    private static Dictionary<string, double> ResolveParams(JsonElement compRaw)
+    private static Dictionary<string, double> ResolveNumericMap(JsonElement compRaw, string blockName)
     {
         var outp = new Dictionary<string, double>();
-        if (compRaw.TryGetProperty("params", out var p) && p.ValueKind == JsonValueKind.Object)
+        if (compRaw.TryGetProperty(blockName, out var p) && p.ValueKind == JsonValueKind.Object)
         {
             foreach (var prop in p.EnumerateObject())
             {
@@ -460,18 +487,52 @@ public sealed class PivotModel
         for (int i = 0; i < positions.Length; i++)
             positions[i] = ((positions[i] % 360.0) + 360.0) % 360.0;
 
-        return new KinematicsInfo(count, positions, minGap, ccw);
+        // Geometrie de rendu (brique 5) : rayon du cercle, centre, taille des palettes. Ces champs
+        // n'entrent PAS dans la cinematique (PalletSet ne les lit pas) ; ils viennent du meme contrat
+        // pour que la scene 3D reflete le pivot sans coordonnee en dur. Defensif : le pivot pilote une
+        // maquette reelle, une geometrie absente ou incoherente doit echouer tot et clairement.
+        if (!TryGetDouble(path, "radius_m", out double radiusM) || radiusM <= 0)
+            throw new PivotException("kinematics.path.radius_m absent ou <= 0");
+
+        double[] center = ReadCenter(path);   // [x,y,z], defaut origine si absent
+
+        double[] palletSize = ReadDoubleArray(pal, "size_m");
+        if (palletSize.Length != 3)
+            throw new PivotException(
+                $"kinematics.pallets.size_m attend 3 valeurs [x,y,z], recu {palletSize.Length}");
+
+        return new KinematicsInfo(count, positions, minGap, ccw, radiusM, center, palletSize);
+    }
+
+    /// <summary>
+    /// Centre du cercle (<c>kinematics.path.center</c>) : [x,y,z] en metres. Absent => origine
+    /// (defaut naturel, on n'impose pas le champ) ; present => doit compter exactement 3 valeurs.
+    /// </summary>
+    private static double[] ReadCenter(JsonElement path)
+    {
+        if (!path.TryGetProperty("center", out var c) || c.ValueKind != JsonValueKind.Array)
+            return new[] { 0.0, 0.0, 0.0 };
+        double[] v = ReadNumberArray(c, "kinematics.path.center");
+        if (v.Length != 3)
+            throw new PivotException($"kinematics.path.center attend 3 valeurs [x,y,z], recu {v.Length}");
+        return v;
     }
 
     private static double[] ReadDoubleArray(JsonElement obj, string name)
     {
         if (!obj.TryGetProperty(name, out var arr) || arr.ValueKind != JsonValueKind.Array)
             throw new PivotException($"{name} absent ou n'est pas un tableau");
+        return ReadNumberArray(arr, name);
+    }
+
+    // Convertit un tableau JSON deja localise en double[] (toute valeur non numerique = pivot invalide).
+    private static double[] ReadNumberArray(JsonElement arr, string label)
+    {
         var outp = new List<double>();
         foreach (var el in arr.EnumerateArray())
         {
             if (el.ValueKind != JsonValueKind.Number || !el.TryGetDouble(out var d))
-                throw new PivotException($"{name} : valeur non numerique");
+                throw new PivotException($"{label} : valeur non numerique");
             outp.Add(d);
         }
         return outp.ToArray();

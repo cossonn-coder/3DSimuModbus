@@ -1,0 +1,10 @@
+; Scene principale de la maquette (brique 5). Volontairement MINIMALE : une racine Node3D
+; portant le script CarrouselScene.cs, qui construit TOUTE la geometrie a _Ready depuis le
+; pivot (decision D-a : aucune coordonnee en dur dans la scene). Camera et lumiere sont
+; ajoutees par le script (mobilier d'inspection hors contrat pivot).
+[gd_scene load_steps=2 format=3 uid="uid://b3dsimucarr5"]
+
+[ext_resource type="Script" path="res://scenes/CarrouselScene.cs" id="1_scene"]
+
+[node name="CarrouselScene" type="Node3D"]
+script = ExtResource("1_scene")

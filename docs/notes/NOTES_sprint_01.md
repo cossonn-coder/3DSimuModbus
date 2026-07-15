@@ -473,3 +473,83 @@ intacts) + **3 intégration serveur** verts. **Les 4 scénarios pytest full-chai
 (SimHost relancé, `pytest test_modbus_chain.py` → 4 passed) — B1/B2 n'en font pas partie mais la
 non-régression du bout-en-bout est confirmée. Prochaine pièce : **brique 5** (scène 3D Godot).
 Amorce : `sprint_01_brique_05_scene3d.md`.
+
+---
+
+## 6. Brique 5 — scène 3D statique (génération procédurale depuis le pivot)
+
+### Ce que la brique livre
+
+La **première scène Godot** du projet (`scenes/main.tscn` + `scenes/CarrouselScene.cs`). Jusqu'ici,
+tout était headless : `SimHost` (console) et la logique pure. La brique 5 rend la machine **visible**
+mais **statique** — on la pose à sa place, on ne l'anime pas encore (l'animation depuis la sim est le
+sprint 3). Tout est construit **par code à `_Ready`** depuis `PivotModel` : aucune coordonnée en dur.
+C'est le seul fichier qui dépend de Godot **et** du core (branché par `ProjectReference`).
+
+### Le repère (figé ici, structurant pour l'animation future)
+
+Le pivot raisonne en angles (degrés) sur un cercle ; Godot en `Vector3` (Y = hauteur). La **conversion
+canonique**, valable pour palettes, postes de vérins et fenêtres capteurs :
+
+```
+sol = plan (X, Z) de Godot ;  Y = hauteur
+x = cx + r·cos(θ)
+z = cz − r·sin(θ)          ← le « moins » rend le sens CCW correct vu de dessus
+```
+
+- **0°** sur **+X**, **θ croissant = CCW** vu de dessus (caméra regardant −Y, X vers la droite).
+- Postes : **90° → (0, −r)** (au fond), **270° → (0, +r)** (devant). Cohérent avec `direction: "ccw"`.
+- La **même** rotation `RotateY(θ)` sert à orienter une palette/fenêtre : le X local retombe sur le
+  **rayon**, le Z local sur la **tangente** (基 de Godot `RotY` : X_local → (cosθ, 0, −sinθ)). C'est
+  ce qui permet de dimensionner la fenêtre capteur en (profondeur radiale, hauteur, corde tangentielle).
+- Corde d'un arc de `window_deg` au rayon r : `2·r·sin(window/2)`.
+
+**À valider visuellement** au premier lancement (sens de rotation, position des postes) : c'est le seul
+point que la compilation ne garantit pas.
+
+### Le trou de données comblé (option A : extension du core)
+
+`PivotModel` ne parsait que les **scalaires** de `params`. Or la 3D a besoin de données ignorées
+jusque-là : l'anneau du convoyeur (bloc `render`), la taille des palettes (`kinematics.pallets.size_m`),
+le rayon et le centre du cercle (`kinematics.path`). Deux options se présentaient : **(A)** étendre le
+loader, **(B)** relire le JSON brut dans Godot. On a tranché **A** — la seule qui garde **un seul
+parseur** du pivot (le codebase refuse un second loader). Extension **additive** :
+
+- `KinematicsInfo` gagne `RadiusM`, `Center`, `PalletSizeM` (géométrie, la sim ne les lit pas).
+- `Component` gagne un sac `Render` (bloc `render`, parsé comme `Params` mais sur une autre clé) +
+  `GetRender` défensif. `ResolveParams` est généralisé en `ResolveNumericMap(bloc)` : **un** extracteur
+  numérique pour `params` **et** `render`, pas de duplication.
+- **Durcissement** : `radius_m`/`size_m` deviennent requis dès que `kinematics` est présent (le *path*
+  est un cercle, un cercle a un rayon). Un test *sim-only* (`Kinematics_positions_normalisees`) a dû
+  recevoir ces champs — sans changer ce qu'il asserte. Le tableau canonique (`ToCanonical`, adresses
+  Modbus) n'émet ni kinematics ni render : **la parité formelle Python↔C# n'est pas affectée**.
+
+### Pourquoi du CSG pour l'anneau, et rien d'autre
+
+Aucun mesh primitif Godot ne donne une **couronne plate** : `TorusMesh` est un tube (donut) qui ignore
+`height_m`. On soustrait donc un cylindre intérieur d'un cylindre extérieur (`CsgCombiner3D`, 2
+primitives + 1 soustraction) — fidèle aux 3 côtés du pivot (`inner`/`outer`/`height`). Partout ailleurs
+un primitif suffit (D-b) : vérins = `CylinderMesh` (fût vertical + tige rentrée, la tige est un enfant
+`rod` que le sprint 3 translatera de `+stroke_m`), palettes = `BoxMesh`, fenêtres capteurs = `BoxMesh`
+translucide (`Transparency = Alpha`).
+
+### Nommage adressable (prépare le sprint 3)
+
+Chaque nœud porte l'`id` du composant pivot : `conveyor`, `cylinder_1/2` (enfants `body`/`rod`),
+`presence_station_1/2`, et `pallet_0/1/2` (les palettes n'ont pas d'`id` → index). Le futur binding
+sim→3D retrouvera ces nœuds par nom sans retoucher la scène. Caméra et lumière sont du **mobilier hors
+pivot** : créées par code (via `LookAt`, cadrage garanti sans matrice à la main), hors recensement.
+
+### Validation
+
+Pas de test « hors Godot » possible (seul module qui dépend du moteur). Deux garde-fous :
+1. **Compilation** de l'assembly Godot (`dotnet build`) — verte, valide l'usage de l'API 4.6 et le lien core.
+2. **Smoke-test headless** (`runtime/scripts/smoke_scene.ps1`) : `godot --headless --quit-after 5`
+   doit sortir en 0 et imprimer `[carrousel] ring=1 cylinders=2 pallets=3 sensors=2`, sans erreur.
+   À exécuter là où Godot 4.6 .NET est installé (absent du poste de dev de cette session).
+
+### Résultat
+
+Core : **82 → 87 verts** (+5 : géométrie de rendu + render + robustesse). Assembly Godot compilé. Scène
+procédurale prête ; sa **conformité visuelle** reste à confirmer au premier lancement Godot. Après cette
+brique, le sprint 1 est **complet côté runtime statique**.

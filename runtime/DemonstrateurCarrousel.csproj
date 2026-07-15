@@ -15,6 +15,14 @@
     <PackageReference Include="FluentModbus" Version="5.3.2" />
   </ItemGroup>
 
+  <!-- Lien vers la logique pure (loader pivot). La scene 3D (brique 5) construit sa geometrie
+       depuis le PivotModel : elle a besoin du core, mais le core reste sans aucune dependance
+       Godot (class library testee hors moteur). Le glob du SDK Godot exclut deja core/**/*.cs
+       de la compilation directe (ci-dessus) ; c'est ce ProjectReference qui l'apporte proprement. -->
+  <ItemGroup>
+    <ProjectReference Include="core/CarrouselCore.csproj" />
+  </ItemGroup>
+
   <!-- Sous-projets .NET autonomes sous runtime/ (POC jetable, class library core,
        tests xUnit) : ils ont leur PROPRE .csproj. On les retire du glob du SDK Godot,
        sinon l'assembly Godot tenterait de les compiler (top-level/points d'entree

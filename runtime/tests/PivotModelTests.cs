@@ -201,6 +201,69 @@ public class PivotModelTests
         Assert.True(k.Ccw);   // path.direction = "ccw"
     }
 
+    // --- Geometrie de rendu (extension additive brique 5) ---
+
+    [Fact]
+    public void Geometrie_de_rendu_du_pivot_reel()
+    {
+        // Rayon du cercle, centre et taille des palettes : alimentent la scene 3D, viennent du pivot.
+        var k = Mapping.Kinematics;
+        Assert.Equal(1.5, k.RadiusM);
+        Assert.Equal(new[] { 0.0, 0.0, 0.0 }, k.Center);
+        Assert.Equal(new[] { 0.4, 0.1, 0.4 }, k.PalletSizeM);
+    }
+
+    [Fact]
+    public void Render_anneau_convoyeur()
+    {
+        // Bloc "render" du convoyeur : dimensions de l'anneau (la cle "kind":"ring", non numerique, est ignoree).
+        var km1 = Mapping.GetComponent("KM1");
+        Assert.Equal(1.3, km1.GetRender("inner_radius_m"));
+        Assert.Equal(1.7, km1.GetRender("outer_radius_m"));
+        Assert.Equal(0.05, km1.GetRender("height_m"));
+    }
+
+    [Fact]
+    public void Render_absent_echoue()
+    {
+        // Un verin n'a pas de bloc render (son rendu se deduit de station_angle_deg/stroke_m) :
+        // demander une dimension de rendu doit echouer clairement, comme GetParam.
+        var ex = Assert.Throws<PivotException>(() => Mapping.GetComponent("cylinder_1").GetRender("inner_radius_m"));
+        Assert.Contains("rendu", ex.Message);
+    }
+
+    [Fact]
+    public void Kinematics_radius_absent_echoue()
+    {
+        // kinematics present mais path.radius_m manquant : geometrie de path incomplete.
+        string json = MinimalPivot.Replace("\"components\"", """
+            "kinematics": {
+              "path": { "direction": "ccw" },
+              "pallets": { "count": 1, "initial_positions_deg": [0.0], "min_gap_deg": 20.0,
+                           "size_m": [0.4, 0.1, 0.4] }
+            },
+            "components"
+            """);
+        var ex = Assert.Throws<PivotException>(() => PivotModel.Load(WriteTemp(json)));
+        Assert.Contains("radius_m", ex.Message);
+    }
+
+    [Fact]
+    public void Kinematics_size_m_taille_invalide_echoue()
+    {
+        // size_m doit compter exactement 3 valeurs [x,y,z].
+        string json = MinimalPivot.Replace("\"components\"", """
+            "kinematics": {
+              "path": { "direction": "ccw", "radius_m": 1.5 },
+              "pallets": { "count": 1, "initial_positions_deg": [0.0], "min_gap_deg": 20.0,
+                           "size_m": [0.4, 0.1] }
+            },
+            "components"
+            """);
+        var ex = Assert.Throws<PivotException>(() => PivotModel.Load(WriteTemp(json)));
+        Assert.Contains("size_m", ex.Message);
+    }
+
     [Fact]
     public void Kinematics_absente_leve_a_l_usage()
     {
@@ -261,10 +324,13 @@ public class PivotModelTests
     public void Kinematics_positions_normalisees()
     {
         // Angles hors [0..360) replies defensivement (450 -> 90, -30 -> 330).
+        // radius_m/size_m sont requis des que kinematics est present (contrat geometrique du path) :
+        // on les fournit ici, ce test ne portant que sur la normalisation des angles.
         string json = MinimalPivot.Replace("\"components\"", """
             "kinematics": {
-              "path": { "direction": "cw" },
-              "pallets": { "count": 2, "initial_positions_deg": [450.0, -30.0], "min_gap_deg": 20.0 }
+              "path": { "direction": "cw", "radius_m": 1.5 },
+              "pallets": { "count": 2, "initial_positions_deg": [450.0, -30.0], "min_gap_deg": 20.0,
+                           "size_m": [0.4, 0.1, 0.4] }
             },
             "components"
             """);
