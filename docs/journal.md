@@ -167,3 +167,40 @@ Aucune dette nouvelle.
 **Suite** : **brique 4** — boucle de simulation (cinématique scriptée déterministe + heartbeat),
 qui remplira le `ret` et débloquera la validation full-chain FC3/FC16 du testbench Python.
 Amorce : `sprint_01_brique_04_simulation.md`.
+
+---
+
+## 2026-07-15 — Sprint 1, brique 4a : boucle de simulation (vérins + convoyeur + heartbeat)
+
+**Archi (validée avant code)** : re-découpage brique 4 → **4a** (heartbeat + vérins + KM1_AUX,
+porte les 4 pytest full-chain) et **4b** (palettes/accumulation/présence). Les deux sous-amorces
+rédigées d'avance (convention 2026-07-15). Reco archi suivies en bloc par Nico.
+
+**Livré** :
+- `runtime/core/PivotModel.cs` : `Signal.WriteBit` (symétrique de `ReadBit`), `Component.Params`
+  + `GetParam` (sac générique `double`, additif D-d), `HeartbeatPeriodMs` (cadence tick, défaut 100).
+  **Le pivot JSON n'a pas changé** — tous les params y étaient depuis la Phase 0.
+- `runtime/core/CylinderState.cs` : vérin monostable 0→1, vitesse constante, inversion mi-course
+  gérée par le clamp (aucune branche dédiée). Seuils S11/S12 + IsEngaged (pour 4b).
+- `runtime/core/ConveyorState.cs` : recopie retardée KM1_AUX (suiveur temporisé symétrique).
+- `runtime/core/CarrouselSimulation.cs` : composition root. `Tick` = snapshot cmd → advance →
+  heartbeat (rollover ushort) → reconstruction complète de `ret` (D-e) → publish. B1/B2 à 0 (4b).
+- `runtime/simhost/` (nouveau projet console) : hôte headless Pull→Tick→Push cadencé, écoute 502.
+  Débloque pytest sans Godot ; patron du futur `_PhysicsProcess`.
+- Tests : `CylinderStateTests`, `ConveyorStateTests`, `CarrouselSimulationTests` + ajouts params/
+  WriteBit/cadence dans `PivotModelTests`.
+- `DemonstrateurCarrousel.csproj` : `simhost/` retiré du glob SDK Godot (sinon double entry point).
+
+**Résultat** : **63 verts / 0 échec** (60 core + 3 intégration serveur ; +29 vs 34, originaux intacts).
+**4 scénarios pytest full-chain PASSENT** (`SimHost` en écoute, `pytest test_modbus_chain.py -v`
+→ `4 passed`). Heartbeat, KM1_AUX (recopie après délai), YV1/YV2 (sortie + rappel ressort) validés
+bout-en-bout FC3/FC16.
+
+**Décisions/dettes** : `memory.md` amendé (params + cadence tirés du pivot, découpage 4a/4b).
+Aucune dette nouvelle en 4a. D-008 (simplification accumulation) reste candidate pour 4b.
+Points de design → `NOTES_sprint_01.md §4`. Amorces 4a rédigée+cochée, 4b prête.
+
+**Suite** : **brique 4b** — palettes, accumulation `min_gap_deg`, présence B1/B2.
+Amorce : `sprint_01_brique_04b_palettes.md`.
+
+**⚠ Commit** : pas de remote configuré (`git remote -v` vide) — commit local uniquement, push impossible.

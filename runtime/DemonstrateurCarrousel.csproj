@@ -26,5 +26,6 @@
     <Compile Remove="tests/**/*.cs" />
     <Compile Remove="server/**/*.cs" />
     <Compile Remove="server.tests/**/*.cs" />
+    <Compile Remove="simhost/**/*.cs" />
   </ItemGroup>
 </Project>

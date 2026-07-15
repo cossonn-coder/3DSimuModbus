@@ -17,10 +17,14 @@ Brief : `docs/sprints/sprint_01_brief.md`
   - ✅ Brique 2 : `ModbusDataStore` (C# pur, `ushort[]` cmd/ret + verrou) + tests xUnit
     (28 verts au total) — transport de mots bruts, tailles tirées du pivot, snapshot copie
     défensive, publish/wire atomiques et défensifs. Amorce cochée.
-  - ⏳ Brique 3 : serveur FluentModbus branché (Arch A) validé au testbench
-    — amorce : `docs/sprints/sprint_01_brique_03_serveur.md`
-  - ⏳ Brique 4 : boucle de simulation (cinématique scriptée + heartbeat)
-    — amorce : `docs/sprints/sprint_01_brique_04_simulation.md`
+  - ✅ Brique 3 : serveur FluentModbus branché (Arch A) + tests d'intégration in-process
+    (34 verts au total) — pont big-endian, Pull/Push sous server.Lock. Amorce cochée.
+  - ✅ Brique 4a : boucle de simulation vérins + convoyeur + heartbeat (cinématique scriptée
+    pure : `CylinderState`, `ConveyorState`, `CarrouselSimulation`) + hôte headless `SimHost`.
+    **63 verts** + les **4 scénarios pytest full-chain débloqués**. Amorce cochée.
+    — amorce : `docs/sprints/sprint_01_brique_04a_verins_convoyeur.md`
+  - ⏳ Brique 4b : palettes + accumulation `min_gap_deg` + présence B1/B2
+    — amorce : `docs/sprints/sprint_01_brique_04b_palettes.md`
   - ⏳ Brique 5 : scène 3D statique (procédurale depuis le pivot)
     — amorce : `docs/sprints/sprint_01_brique_05_scene3d.md`
   - ⏳ Diff **canonique formel** Python↔C# des loaders (émetteur canonique côté Python

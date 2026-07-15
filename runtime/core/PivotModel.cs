@@ -55,6 +55,23 @@ public readonly record struct Signal(
             throw new PivotException($"{Name} n'est pas un signal TOR");
         return ((wordValue >> Bit.Value) & 0x1) != 0;
     }
+
+    /// <summary>
+    /// Ecrit l'etat de ce bit TOR dans un mot 16 bits POSSEDE par l'appelant (passe par ref) :
+    /// met le bit a 1 si <paramref name="value"/>, a 0 sinon, sans toucher aux autres bits du mot.
+    /// Symetrique de <see cref="ReadBit"/> : la simulation reconstruit chaque mot de la zone `ret`
+    /// en positionnant les bits de ses retours (S11, KM1_AUX...) un par un via cette methode.
+    /// </summary>
+    public void WriteBit(ref ushort word, bool value)
+    {
+        if (!IsTor || Bit is null)
+            throw new PivotException($"{Name} n'est pas un signal TOR");
+        ushort mask = (ushort)(1 << Bit.Value);
+        if (value)
+            word |= mask;                       // set : OU avec le masque
+        else
+            word = (ushort)(word & ~mask);      // clear : ET avec le complement (cast : ~ushort promeut en int)
+    }
 }
 
 /// <summary>Un composant du pivot (conveyor, cylinder, sensor...) avec ses signaux resolus.</summary>
@@ -65,13 +82,34 @@ public sealed class Component
     public string Type { get; }
     public IReadOnlyDictionary<string, Signal> Signals { get; }
 
-    public Component(string id, string tag, string type, IReadOnlyDictionary<string, Signal> signals)
+    // Parametres machine numeriques du composant (bloc "params" du pivot), resolus en scalaires
+    // `double` : vitesse convoyeur, temps de course verin, seuils de capteurs, fenetre de presence...
+    // Sac GENERIQUE (cle -> valeur) : le PivotModel ne connait pas la SEMANTIQUE machine, il ne fait
+    // que transporter des nombres nommes ; c'est la simulation (brique 4) qui sait quel param lire
+    // pour quel modele. Les champs non numeriques (monostable: bool, size_m: tableau...) sont ignores
+    // ici — ils relevent d'autres briques (rendu 3D) ou d'un comportement deja acte.
+    public IReadOnlyDictionary<string, double> Params { get; }
+
+    public Component(string id, string tag, string type,
+                     IReadOnlyDictionary<string, Signal> signals,
+                     IReadOnlyDictionary<string, double> parameters)
     {
         Id = id;
         Tag = tag;
         Type = type;
         Signals = signals;
+        Params = parameters;
     }
+
+    /// <summary>
+    /// Lit un parametre machine numerique du composant. DEFENSIF : un param attendu mais absent du
+    /// pivot est une incoherence de contrat (pas un cas nominal) — on echoue clairement plutot que
+    /// de retomber sur une valeur par defaut silencieuse qui fausserait la cinematique.
+    /// </summary>
+    public double GetParam(string name)
+        => Params.TryGetValue(name, out var v)
+            ? v
+            : throw new PivotException($"{Id} n'a pas de parametre '{name}'");
 }
 
 /// <summary>Vue resolue du pivot : zones, composants, index par tag, heartbeat.</summary>
@@ -91,6 +129,12 @@ public sealed class PivotModel
     public int Port { get; }
     public byte UnitId { get; }
 
+    // Cadence du tick physique, en millisecondes, tiree de modbus.heartbeat.period_ms (100 ms
+    // au pivot V1). C'est le rythme auquel l'hote (SimHost / _PhysicsProcess Godot) enchaine
+    // Pull -> Tick -> Push, donc aussi la cadence d'increment du heartbeat. Optionnel dans le
+    // pivot : defaut 100 ms si absent (evite d'imposer le champ aux pivots minimaux de test).
+    public int HeartbeatPeriodMs { get; }
+
     private PivotModel(
         IReadOnlyDictionary<string, ZoneLayout> zones,
         IReadOnlyDictionary<string, Component> components,
@@ -98,6 +142,7 @@ public sealed class PivotModel
         IReadOnlyDictionary<string, Signal> signalsByTag,
         IReadOnlyList<Signal> allSignals,
         Signal heartbeat,
+        int heartbeatPeriodMs,
         int port,
         byte unitId)
     {
@@ -107,6 +152,7 @@ public sealed class PivotModel
         SignalsByTag = signalsByTag;
         AllSignals = allSignals;
         Heartbeat = heartbeat;
+        HeartbeatPeriodMs = heartbeatPeriodMs;
         Port = port;
         UnitId = unitId;
     }
@@ -190,6 +236,17 @@ public sealed class PivotModel
         CheckBounds(heartbeat, zones);
         occupiedWords.Add((heartbeat.Zone, heartbeat.AbsWord));
 
+        // Cadence du tick (heartbeat.period_ms) : optionnelle, defaut 100 ms. Defensif si presente :
+        // une periode nulle/negative n'a pas de sens (rythme d'une boucle temps reel).
+        int heartbeatPeriodMs = 100;
+        if (modbus.TryGetProperty("heartbeat", out var hbEl)
+            && TryGetInt(hbEl, "period_ms", out int periodMs))
+        {
+            if (periodMs <= 0)
+                throw new PivotException($"modbus.heartbeat.period_ms doit etre > 0 : {periodMs}");
+            heartbeatPeriodMs = periodMs;
+        }
+
         var components = new Dictionary<string, Component>();
         var byTag = new Dictionary<string, Component>();
         var signalsByTag = new Dictionary<string, Signal>();
@@ -220,20 +277,22 @@ public sealed class PivotModel
                     }
                 }
 
-                var comp = new Component(compId, compTag, GetString(compRaw, "type", ""), sigs);
+                var prms = ResolveParams(compRaw);
+                var comp = new Component(compId, compTag, GetString(compRaw, "type", ""), sigs, prms);
                 components[compId] = comp;
                 byTag[compTag] = comp;
             }
         }
 
-        // NB : les params machine (speed_deg_per_s, travel_time_ms, seuils...) ne sont PAS
-        // parses ici — ils ne servent qu'a la boucle de simulation (brique ulterieure). On
-        // les ajoutera quand cette brique en aura besoin (simplicite d'abord).
+        // Les params machine (speed_deg_per_s, travel_time_ms, seuils...) sont desormais parses de
+        // facon ADDITIVE (brique 4a, decision D-d) : un seul point de verite pour le pivot, pas de
+        // second parseur. On ne lit que les scalaires numeriques ; la cinematique (brique 4) sait
+        // quel param s'applique a quel modele. Les resolutions d'adresses ci-dessus sont inchangees.
 
         if (allSignals.Count <= 1)
             throw new PivotException("Aucun signal de composant resolu depuis le pivot");
 
-        return new PivotModel(zones, components, byTag, signalsByTag, allSignals, heartbeat, port, (byte)unitId);
+        return new PivotModel(zones, components, byTag, signalsByTag, allSignals, heartbeat, heartbeatPeriodMs, port, (byte)unitId);
     }
 
     private static JsonDocument ParseOrThrow(string text, string path)
@@ -301,6 +360,26 @@ public sealed class PivotModel
 
         return new Signal(compId, name, tag, zone,
                           IsTor: bit is not null, WordRel: word, Bit: bit, AbsWord: zones[zone].Base + word);
+    }
+
+    /// <summary>
+    /// Extrait les params machine numeriques d'un composant (bloc "params"). Ne retient que les
+    /// scalaires nombres (double) ; ignore silencieusement bool/tableau/objet (ex. monostable,
+    /// size_m) qui ne concernent pas la cinematique. Bloc "params" absent = dictionnaire vide
+    /// (un capteur sans param est legitime) — c'est GetParam qui echoue si un param requis manque.
+    /// </summary>
+    private static Dictionary<string, double> ResolveParams(JsonElement compRaw)
+    {
+        var outp = new Dictionary<string, double>();
+        if (compRaw.TryGetProperty("params", out var p) && p.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var prop in p.EnumerateObject())
+            {
+                if (prop.Value.ValueKind == JsonValueKind.Number && prop.Value.TryGetDouble(out var d))
+                    outp[prop.Name] = d;
+            }
+        }
+        return outp;
     }
 
     private static void CheckBounds(Signal sig, Dictionary<string, ZoneLayout> zones)

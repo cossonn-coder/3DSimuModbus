@@ -1,5 +1,11 @@
 # Sprint 1 · Brique 4 — Boucle de simulation (cinématique scriptée + heartbeat)
 
+> ⚠️ **SCINDÉE à l'archi le 2026-07-15** en deux sous-briques (Q3 tranchée) :
+> **4a** = vérins + convoyeur (KM1_AUX) + heartbeat → `sprint_01_brique_04a_verins_convoyeur.md`
+> (porte les 4 pytest full-chain) ; **4b** = palettes/accumulation/présence B1/B2 →
+> `sprint_01_brique_04b_palettes.md` (partie incertaine isolée). Ce fichier reste pour l'historique
+> de conception ; **les amorces à suivre sont 4a puis 4b**.
+
 > **But de ce fichier** : reprendre la brique 4 **à froid**. Contrat visé, décisions pré-tranchées,
 > questions ouvertes. Rédigé **pendant la conception** du sprint (convention 2026-07-15) : plus
 > provisoire que la brique 3 — **à re-valider finement à l'étape archi**, quand son tour vient.

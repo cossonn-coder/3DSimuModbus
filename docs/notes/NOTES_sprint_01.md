@@ -296,3 +296,97 @@ pas d'interblocage (cohérent avec le §2).
 endianness ×1). Prochaine pièce : **brique 4**, la boucle de simulation (cinématique scriptée
 + heartbeat), qui remplira le `ret` et débloquera la validation full-chain FC3/FC16 du
 testbench Python.
+
+---
+
+## 4. Brique 4a — la boucle de simulation (vérins + convoyeur + heartbeat)
+
+### À quoi sert cette pièce
+
+C'est **le cerveau**. Jusqu'ici le serveur transportait des mots bruts : il renvoyait au PLC
+ce qu'on lui donnait, sans logique. La brique 4 transforme les **commandes** (zone `cmd`) en
+**retours physiquement plausibles** (zone `ret`), à chaque tick physique. C'est elle qui
+débloque la **chaîne réelle bout-en-bout** : les 4 scénarios pytest full-chain, jusque-là en
+skip, deviennent verts.
+
+### Décision structurante n°1 — re-découpage 4a / 4b (Q3 tranchée)
+
+À l'archi, on a scindé la brique 4. L'argument vient des **tests eux-mêmes** : les 4 scénarios
+full-chain (`heartbeat`, `KM1_AUX`, `S11/S12`, `S21/S22`) **ne touchent ni les palettes ni
+B1/B2**. Donc :
+
+- **4a** = heartbeat + vérins + retour convoyeur → **débloque à elle seule les 4 pytest** + livre
+  un hôte runnable. Le jalon est tenu tôt.
+- **4b** = palettes / accumulation / présence → couverte par du xUnit pur, et **isole toute
+  l'incertitude** (modèle d'accumulation circulaire). Si 4b patine, 4a est déjà verte.
+
+Convention 2026-07-15 respectée : les **deux** sous-amorces (`_04a_`, `_04b_`) ont été rédigées
+**avant** de coder.
+
+### Décision structurante n°2 — petits modèles purs composés (D-c)
+
+Plutôt qu'un gros bloc, la cinématique est faite de modèles **purs** (zéro Godot, zéro pivot,
+`dt` injecté), testables un par un avec des valeurs à la main :
+
+- **`CylinderState`** : position `0→1`, vitesse constante `1/travel_time`. Le point élégant :
+  l'**inversion mi-course est gratuite**. On va *toujours* vers la cible (1 si commande, 0 sinon)
+  depuis la position courante, en clampant via `Min`/`Max`. Ce même clamp gère l'arrivée en butée
+  ET le demi-tour à mi-course — **aucune branche dédiée**. C'est ce que l'amorce redoutait comme
+  « point dur » et qui s'est révélé un non-problème grâce à la bonne formulation.
+- **`ConveyorState`** : recopie **retardée** du contact KM1_AUX. Suiveur temporisé symétrique : on
+  cumule le temps où la sortie diffère de la commande ; au bout de `feedback_delay_ms`, la sortie
+  bascule. Un à-coup bref de commande (< délai) qui revient à son état ne fait jamais fermer le
+  contact (le compteur se remet à zéro dès que commande = sortie).
+
+La **composition** vit dans `CarrouselSimulation` : elle résout une fois les `Signal` (offsets +
+masques) et les params, puis chaque `Tick` ne fait que décoder/encoder. La traduction bit↔état
+physique est là, et **nulle part ailleurs** — les modèles purs ignorent tout du Modbus.
+
+### `Signal.WriteBit` — le symétrique manquant (Q1 tranchée)
+
+Le `Signal` savait lire un bit (`ReadBit`) mais pas l'écrire. Ajout **additif** de
+`WriteBit(ref ushort word, bool)` : la sim reconstruit chaque mot de `ret` en positionnant ses
+bits un par un, sans écraser les voisins (`set` = OU masque ; `clear` = ET complément, avec cast
+`ushort` car `~` promeut en `int`). Le mot `ret[1]` porte S11/S12/S21/S22 + KM1_AUX : quatre
+retours indépendants dans le même mot, jamais de collision (bits distincts). Le heartbeat, lui,
+est un **mot entier** (`ret[0]`), écrit directement — d'où l'absence de chevauchement.
+
+### Extension additive du loader (D-d)
+
+Les params machine (`speed_deg_per_s`, `travel_time_ms`, seuils, `window_deg`…) étaient présents
+dans le pivot **mais pas parsés**. 4a étend `PivotModel` de façon **additive** : `Component.Params`
+(sac générique `double`, clé→valeur) + `GetParam` défensif (échec clair si un param requis manque,
+jamais de défaut silencieux qui fausserait la cinématique). Le `PivotModel` reste **agnostique de
+la sémantique machine** : il transporte des nombres nommés, c'est la sim qui sait lequel lire pour
+quel modèle. Les résolutions d'adresses existantes sont **inchangées** — le **pivot JSON n'a pas
+bougé** (tout y était depuis la Phase 0). Ajout aussi de `HeartbeatPeriodMs` (cadence du tick,
+`heartbeat.period_ms`, défaut 100 ms) pour ne pas coder la cadence en dur (règle « tous les temps
+viennent du pivot »).
+
+### `SimHost` — débloquer pytest sans Godot
+
+Pour que les 4 scénarios full-chain tournent, il faut un **hôte runnable** qui écoute sur le 502
+et cadence le tick. Plutôt que d'attendre Godot (brique 5), on livre **`SimHost`** : une console
+.NET pure (`runtime/simhost/`) qui assemble `PivotModel` + `ModbusDataStore` + `ModbusServer` +
+`CarrouselSimulation` et boucle :
+
+```
+server.PullCommands();   // fil (M580) → datastore
+sim.Tick(store, dt);     // décode cmd, avance la cinématique, encode ret
+server.PushReturns();    // datastore → fil (M580)
+```
+
+Ce sont **exactement** les trois appels que le `_PhysicsProcess` de la brique 5 fera — `SimHost`
+est le **patron de référence** du câblage temporel, pas une abstraction jetable. `dt` est mesuré
+au `Stopwatch` (temps réel écoulé, pas un pas figé). Bind loopback par défaut (pas de dialogue
+pare-feu Windows en test local) ; `--any` pour brancher un vrai M580 distant.
+
+### Résultat
+
+`PivotModel` étendu (`WriteBit`, `Params`/`GetParam`, `HeartbeatPeriodMs`) + `CylinderState` +
+`ConveyorState` + `CarrouselSimulation` + `runtime/simhost/` livrés. **63 verts** (`dotnet test` :
+60 core + 3 intégration serveur) — les 34 d'avant intacts, +29 nouveaux (WriteBit, params,
+cadence, vérin, convoyeur, boucle sim). **Les 4 scénarios pytest full-chain PASSENT** (`SimHost`
+en écoute puis `pytest test_modbus_chain.py -v` → 4 passed). Aucune dette nouvelle en 4a (l'accumulation
+et son éventuelle dette D-008 sont le sujet de 4b). Prochaine pièce : **brique 4b** (palettes,
+accumulation, présence B1/B2). Amorce : `sprint_01_brique_04b_palettes.md`.

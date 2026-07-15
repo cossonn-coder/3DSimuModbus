@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- SimHost — hote HEADLESS de la simulation (brique 4a). Console .NET pur, ZERO Godot :
+       il assemble les trois pieces deja livrees (PivotModel + ModbusDataStore + ModbusServer)
+       et la boucle de simulation (CarrouselSimulation), puis cadence le tick physique.
+
+       Deux usages :
+         1. Debloquer les 4 scenarios pytest full-chain SANS lancer Godot (chaine reelle FC3/FC16).
+         2. Outil de smoke manuel (observer le heartbeat / les fins de course via un client Modbus).
+
+       Le noeud Godot de la brique 5 fera EXACTEMENT le meme enchainement Pull -> Tick -> Push
+       dans _PhysicsProcess : SimHost est le patron de reference du cablage temporel.
+       FluentModbus arrive transitivement via la reference a CarrouselServer. -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>CarrouselSimHost</RootNamespace>
+    <AssemblyName>SimHost</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\core\CarrouselCore.csproj" />
+    <ProjectReference Include="..\server\CarrouselServer.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -70,6 +70,21 @@ public class PivotModelTests
     }
 
     [Fact]
+    public void Cadence_heartbeat_du_pivot()
+    {
+        // period_ms du pivot reel = 100 ; cadence du tick physique (SimHost / _PhysicsProcess).
+        Assert.Equal(100, Mapping.HeartbeatPeriodMs);
+    }
+
+    [Fact]
+    public void Cadence_heartbeat_defaut_si_absente()
+    {
+        // Le pivot minimal des tests n'a pas de period_ms : defaut 100 ms, chargement OK.
+        var m = PivotModel.Load(WriteTemp(MinimalPivot));
+        Assert.Equal(100, m.HeartbeatPeriodMs);
+    }
+
+    [Fact]
     public void Commande_convoyeur()
     {
         var run = Mapping.GetSignal("KM1", "cmd_run");   // lookup par tag composant
@@ -115,6 +130,81 @@ public class PivotModelTests
         Assert.True(s11.ReadBit(word));
         Assert.True(aux.ReadBit(word));
         Assert.False(Mapping.GetSignalByTag("S12").ReadBit(word));
+    }
+
+    [Fact]
+    public void Ecriture_bit_dans_mot()
+    {
+        // WriteBit (brique 4a) est le symetrique de ReadBit : la sim reconstruit un mot `ret`
+        // en positionnant ses bits un a un, sans ecraser les autres.
+        var s11 = Mapping.GetSignalByTag("S11");   // bit 0
+        var s12 = Mapping.GetSignalByTag("S12");   // bit 1
+        ushort word = 0;
+
+        s11.WriteBit(ref word, true);
+        Assert.Equal(0b01, word);
+        s12.WriteBit(ref word, true);
+        Assert.Equal(0b11, word);                  // set n'ecrase pas le bit voisin
+        s11.WriteBit(ref word, false);
+        Assert.Equal(0b10, word);                  // clear ne touche que son bit
+        s11.WriteBit(ref word, false);
+        Assert.Equal(0b10, word);                  // clear idempotent
+    }
+
+    [Fact]
+    public void Ecriture_bit_sur_signal_non_tor_echoue()
+    {
+        // Le heartbeat est un mot entier (pas un TOR) : WriteBit doit refuser, comme ReadBit.
+        ushort word = 0;
+        Assert.Throws<PivotException>(() => Mapping.Heartbeat.WriteBit(ref word, true));
+    }
+
+    // --- Params machine (extension additive brique 4a, decision D-d) ---
+
+    [Fact]
+    public void Params_convoyeur()
+    {
+        var km1 = Mapping.GetComponent("KM1");
+        Assert.Equal(20.0, km1.GetParam("speed_deg_per_s"));
+        Assert.Equal(50.0, km1.GetParam("feedback_delay_ms"));
+    }
+
+    [Theory]
+    [InlineData("cylinder_1", 90.0)]
+    [InlineData("cylinder_2", 270.0)]
+    public void Params_verins(string comp, double station)
+    {
+        var c = Mapping.GetComponent(comp);
+        Assert.Equal(station, c.GetParam("station_angle_deg"));
+        Assert.Equal(500.0, c.GetParam("travel_time_ms"));
+        Assert.Equal(0.10, c.GetParam("block_threshold"));
+        Assert.Equal(0.02, c.GetParam("retracted_threshold"));
+        Assert.Equal(0.98, c.GetParam("extended_threshold"));
+    }
+
+    [Fact]
+    public void Params_presence()
+    {
+        Assert.Equal(8.0, Mapping.GetComponent("B1").GetParam("window_deg"));
+        Assert.Equal(270.0, Mapping.GetComponent("B2").GetParam("station_angle_deg"));
+    }
+
+    [Fact]
+    public void Param_absent_echoue()
+    {
+        // Param inexistant = incoherence de contrat : echec clair, pas de valeur par defaut.
+        var ex = Assert.Throws<PivotException>(() => Mapping.GetComponent("KM1").GetParam("inexistant"));
+        Assert.Contains("inexistant", ex.Message);
+    }
+
+    [Fact]
+    public void Params_non_numeriques_ignores()
+    {
+        // "monostable" (bool) et "stroke_m"/"size_m" ne sont pas des scalaires cinematiques :
+        // ils ne doivent pas polluer le sac de params numeriques.
+        var c = Mapping.GetComponent("cylinder_1");
+        Assert.False(c.Params.ContainsKey("monostable"));
+        Assert.True(c.Params.ContainsKey("stroke_m"));   // stroke_m EST numerique (0.15) : present, simplement inutilise en 4a
     }
 
     [Fact]
