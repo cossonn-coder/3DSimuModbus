@@ -55,12 +55,12 @@ headless** + inspection visuelle.
 
 ## Definition of Done (brique 5) — provisoire
 
-- [ ] Scène générée **procéduralement** depuis le pivot à `_Ready` (aucune coordonnée en dur).
-- [ ] Anneau convoyeur + 2 vérins (corps+tige, rentrée) + 3 palettes aux bonnes positions + zones B1/B2 semi-transparentes.
-- [ ] Nœuds nommés d'après les `id` du pivot (prépare le binding sprint 3).
-- [ ] Smoke-test headless : la scène se construit sans erreur, nombre de nœuds attendu.
-- [ ] Repère angle→(x,z) figé et documenté dans `NOTES_sprint_01.md §5`.
-- [ ] Orchestration à jour ; ce brief coché. **Clôture du sprint 1** via `/sprint close 01` après cette brique.
+- [x] Scène générée **procéduralement** depuis le pivot à `_Ready` (aucune coordonnée en dur).
+- [x] Anneau convoyeur + 2 vérins (corps+tige, rentrée) + 3 palettes aux bonnes positions + zones B1/B2 semi-transparentes.
+- [x] Nœuds nommés d'après les `id` du pivot (prépare le binding sprint 3).
+- [~] Smoke-test headless : script `runtime/scripts/smoke_scene.ps1` **écrit** ; **non exécuté** (Godot absent du poste) → **D-010**. Assembly compile.
+- [x] Repère angle→(x,z) figé et documenté dans `NOTES_sprint_01.md §6` (le §5 était déjà pris par la brique 4b).
+- [x] Orchestration à jour ; ce brief coché. **Clôture du sprint 1** faite (2026-07-15).
 
 ## Ordre de travail
 

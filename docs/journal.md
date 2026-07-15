@@ -6,6 +6,48 @@ surpris, décisions prises (reportées dans memory.md), état des tests.
 
 ---
 
+## 2026-07-15 — Clôture Sprint 1 (brique 5 livrée, chaîne Modbus + maquette statique complètes)
+
+**Contexte** : dernière brique du sprint 1 — la scène 3D statique, première scène Godot du projet.
+Amorce : `sprint_01_brique_05_scene3d.md`.
+
+**Archi (validée avant code)** — le pivot ne livrait pas encore la géométrie de rendu (bloc `render`
+convoyeur, `size_m`/`radius_m`/`center` de `kinematics`). Deux options : **(A)** étendre le loader,
+**(B)** relire le JSON dans Godot. Tranché **A** (un seul parseur du pivot, le codebase refuse un
+second loader). Autres décisions actées avec Nico : **vérin vertical**, repère `x=cx+r·cosθ /
+z=cz−r·sinθ` (0° sur +X, CCW vu de dessus), nœuds nommés par `id` pivot (tige = enfant `rod`).
+
+**Livré** :
+- `runtime/core/PivotModel.cs` : extension **additive** — `KinematicsInfo` + `RadiusM`/`Center`/
+  `PalletSizeM` ; `Component.Render` + `GetRender` (`ResolveParams` généralisé en `ResolveNumericMap`).
+  `radius_m`/`size_m` requis dès que `kinematics` est présent. `ToCanonical` inchangé → **parité
+  formelle Python↔C# non affectée**.
+- `runtime/scenes/CarrouselScene.cs` (nouveau) : builder procédural à `_Ready` — anneau **CSG**
+  (aucun primitif ne fait de couronne plate), 2 vérins (corps + tige rentrée, `rod` translatable),
+  3 palettes aux positions initiales, fenêtres capteurs translucides ; caméra/lumière par `LookAt`.
+- `runtime/scenes/main.tscn` + `project.godot` (`run/main_scene`) ; `DemonstrateurCarrousel.csproj`
+  (`ProjectReference` → core) ; `runtime/scripts/smoke_scene.ps1` (smoke-test headless) ; NOTES §6.
+
+**Résultat** : **core 82 → 87 verts** (+5 : géométrie rendu + render + robustesse). **Assembly Godot
+compile** (0 erreur : usage API 4.6 + lien core validés). Server + SimHost non régressés. **DoD sprint 1
+atteinte** hormis la validation M580 réelle (Phase 4, pas de matériel) et le smoke-test headless
+lui-même (Godot absent du poste — **D-010**).
+
+**Ce qui reste (hors sprint 1, reporté)** : diff **canonique formel** Python↔C# (backlog Phase 1) ;
+cinématique **visuelle** (animer la 3D depuis la sim) = **sprint 3** ; conformité visuelle de la scène
+à confirmer au 1er lancement Godot.
+
+**Dettes nouvelles** : **D-009** (`render.kind` non consommé, convoyeur câblé « anneau » en dur, V1
+mono-convoyeur — cosmétique) ; **D-010** (smoke-test headless non exécuté ici — à surveiller).
+
+**⚠ Périmètre sprint 2 à revoir** : le backlog Phase 1bis prévoyait la 3D statique **en sprint 2** ;
+elle est faite (sprint 1, brique 5). Le sprint 2 doit être **re-conçu** (candidat naturel : la
+cinématique visuelle, ex-sprint 3). → objet de la **conception après `/clear`**.
+
+**⚠ Commit** : commit local `5228326` ; **toujours pas de remote** (`git remote -v` vide) → push impossible.
+
+---
+
 ## 2026-07-15 — Sprint 1, brique 4b : palettes (rotation, accumulation, présence B1/B2)
 
 **Objectif** : ajouter, de façon additive, le mouvement des palettes, leur blocage/accumulation

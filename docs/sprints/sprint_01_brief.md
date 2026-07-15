@@ -100,13 +100,15 @@ blocage. Documenter dans `NOTES_sprint_01.md`.
 - [x] `machine_carrousel.json` charge sans erreur ; un JSON malforme echoue proprement
       (Python **et** C# : `PivotModel` + xUnit `runtime/tests`, 17 verts).
 - [x] Testbench : loader pivot + tests unitaires du contrat (17 verts, 4 skip).
-- [ ] `cmd_run=1` (FC16) → heartbeat progresse et `KM1_AUX` passe a 1 apres
-      `feedback_delay_ms` ; `cmd_run=0` → `KM1_AUX` retombe.
-- [ ] `cylinder_1.cmd_extend=1` → apres `travel_time_ms`, `S12`=1 et `S11`=0 ;
-      `=0` → rappel ressort (monostable) : `S11`=1, `S12`=0. Idem verin 2 (`S21`/`S22`).
-- [ ] `B1`/`B2` refletent la presence palette selon la position simulee.
-- [ ] Heartbeat incremente ~10x/s, rollover propre a 65535.
-- [ ] POC D-001 documente ; strategie thread-safe retenue ecrite dans les NOTES.
-- [ ] Scene 3D statique affiche convoyeur (anneau) + 2 bloqueurs + 3 palettes.
+- [x] `cmd_run=1` (FC16) → heartbeat progresse et `KM1_AUX` passe a 1 apres
+      `feedback_delay_ms` ; `cmd_run=0` → `KM1_AUX` retombe. **(4a, pytest full-chain `4 passed`)**
+- [x] `cylinder_1.cmd_extend=1` → apres `travel_time_ms`, `S12`=1 et `S11`=0 ;
+      `=0` → rappel ressort (monostable) : `S11`=1, `S12`=0. Idem verin 2 (`S21`/`S22`). **(4a)**
+- [x] `B1`/`B2` refletent la presence palette selon la position simulee. **(4b, `PalletSet.PresentAt`)**
+- [x] Heartbeat incremente ~10x/s, rollover propre a 65535. **(4a, `ushort` rollover)**
+- [x] POC D-001 documente ; strategie thread-safe retenue ecrite dans les NOTES. **(NOTES §1, D-001 soldee)**
+- [x] Scene 3D statique affiche convoyeur (anneau) + 2 bloqueurs + 3 palettes. **(brique 5, code+compile ;
+      smoke-test headless + conformite visuelle a confirmer sur poste avec Godot — cf. D-010)**
 - [ ] (Si dispo) M580 reel scrute l'app via I/O Scanner 2 lignes, echanges coherents.
-- [ ] `docs/notes/NOTES_sprint_01.md` redige ; journal/backlog/dettes a jour.
+      **(hors scope de cette session : pas de materiel ; Phase 4)**
+- [x] `docs/notes/NOTES_sprint_01.md` redige ; journal/backlog/dettes a jour. **(cloture 2026-07-15)**
