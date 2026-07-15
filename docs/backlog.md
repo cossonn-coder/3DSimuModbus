@@ -15,6 +15,7 @@ Brief : `docs/sprints/sprint_01_brief.md`
   - ✅ Brique 1 : loader pivot C# (`PivotModel`) + class library `CarrouselCore` +
     xUnit `runtime/tests` (17 verts, symétrie avec pytest) — D-006 concrétisée
   - ⏳ Brique 2 : `ModbusDataStore` (C# pur, verrou) + tests
+    — amorce : `docs/sprints/sprint_01_brique_02_datastore.md`
   - ⏳ Brique 3 : serveur FluentModbus branché (Arch A) validé au testbench
   - ⏳ Diff **canonique formel** Python↔C# des loaders (émetteur canonique côté Python
     à écrire ; `ToCanonical()` déjà présent côté C#) — parité par assertions communes

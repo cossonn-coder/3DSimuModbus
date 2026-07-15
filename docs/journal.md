@@ -92,3 +92,8 @@ pour l'instant (simplicité d'abord).
 **Suite** : brique 2 — `ModbusDataStore` (objet C# pur, `ushort[]` cmd/ret + verrou),
 même projet `core`, tests dans `runtime/tests`. Puis brique 3 (serveur FluentModbus branché,
 Arch A) validée au testbench Python.
+
+**Convention actée ce jour** : chaque brique reçoit une **amorce autosuffisante** dans
+`docs/sprints/` (reprise à froid après `/clear`). Amorce brique 2 rédigée :
+`docs/sprints/sprint_01_brique_02_datastore.md` (contrat d'API, 5 décisions pré-tranchées,
+3 questions ouvertes, DoD).

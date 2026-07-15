@@ -48,3 +48,4 @@ fait foi et la contradiction doit être signalée.
 | 2026-07 | Architecture présentée et validée avant génération de code ; livraison fichier par fichier (SSH mobile). |
 | 2026-07 | Commentaires pédagogiques en français (par bloc/fonction, le « pourquoi ») + `NOTES_sprint_XX.md` détaillé par sprint. Les commentaires pédagogiques ne comptent jamais comme dette de refactor. |
 | 2026-07 | pytest côté Python ; logique C# testable hors Godot autant que possible. |
+| 2026-07-15 | **Chaque brique a son amorce autosuffisante** (`docs/sprints/sprint_XX_brique_YY_*.md`) : contrat d'API visé, décisions de design pré-tranchées + questions ouvertes, DoD, vérif. But : permettre une reprise **à froid** (après `/clear`) sans relire l'historique. Le fichier est rédigé **avant** d'attaquer la brique et coché à sa livraison. |
