@@ -18,6 +18,11 @@ Brief : `docs/sprints/sprint_01_brief.md`
     (28 verts au total) — transport de mots bruts, tailles tirées du pivot, snapshot copie
     défensive, publish/wire atomiques et défensifs. Amorce cochée.
   - ⏳ Brique 3 : serveur FluentModbus branché (Arch A) validé au testbench
+    — amorce : `docs/sprints/sprint_01_brique_03_serveur.md`
+  - ⏳ Brique 4 : boucle de simulation (cinématique scriptée + heartbeat)
+    — amorce : `docs/sprints/sprint_01_brique_04_simulation.md`
+  - ⏳ Brique 5 : scène 3D statique (procédurale depuis le pivot)
+    — amorce : `docs/sprints/sprint_01_brique_05_scene3d.md`
   - ⏳ Diff **canonique formel** Python↔C# des loaders (émetteur canonique côté Python
     à écrire ; `ToCanonical()` déjà présent côté C#) — parité par assertions communes
     en attendant
