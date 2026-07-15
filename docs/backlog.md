@@ -35,14 +35,18 @@ Brief : `docs/sprints/sprint_01_brief.md`
     en attendant *(reporté hors sprint 1)*
 - ⏳ Validation croisée avec le M580 réel (2 lignes de scan dans Control Expert) *(Phase 4)*
 
-## Phase 1bis — Cinématique 3D ⏳
+## Phase 1bis — Cinématique 3D ✅
 > **Note (2026-07-15)** : la **scène 3D statique**, initialement prévue en sprint 2, a été livrée
-> en **sprint 1 (brique 5)**. Le périmètre du **sprint 2 est donc à redéfinir** — candidat naturel :
-> la **cinématique visuelle** (ex-sprint 3). → **conception du sprint 2 à faire après `/clear`**.
-- ⏳ Sprint 2 (à re-concevoir) : cinématique visuelle — animer la 3D depuis la sim.
-  `_PhysicsProcess` rejoue `PullCommands → Tick → PushReturns` (patron `SimHost`) puis lit
-  `Pallets.AnglesDeg` / `Cylinder.Position` et écrit les transforms (nœuds nommés en brique 5).
-  Point à trancher : cadence physique 60 Hz vs tick sim 100 ms (heartbeat) — cf. `memory.md`.
+> en **sprint 1 (brique 5)** ; le **sprint 2** a donc porté la **cinématique visuelle** (ex-sprint 3).
+- ✅ Sprint 2 : cinématique visuelle — la 3D est animée depuis la sim (clos 2026-07-15, validé Nico).
+  `_PhysicsProcess` rejoue `PullCommands → Tick → PushReturns` (patron `SimHost`) à **pas fixe**
+  (accumulateur, `Tick` 10 Hz), puis `ApplyToScene` recopie l'état sur les transforms (snap 10 Hz).
+  Décomposé en 2 sous-sprints séquentiels (partageaient `CarrouselScene.cs`) :
+  - ✅ S2.1 : scène-hôte Modbus (boucle `_PhysicsProcess`/`StepSim` + serveur + garde-fous heartbeat ;
+    `ApplyToScene` stub). Build 0 erreur, 90 tests, scène ≡ SimHost (4 pytest). — `31ac4d5`
+  - ✅ S2.2 : animation `ApplyToScene` (tiges +Y, palettes `OnCircle`) + `smoke_anim.ps1` vert ;
+    **D-010 soldée**. — `8dc0c22`
+  - ✅ `demo_sprint_02.ps1` (démo visuelle guidée, pré-vol port 502) → validation visuelle Nico. — `d4b2d71`
 - ⏳ Reste éventuel : diff canonique Python↔C#, polish visuel, IHM debug minimale.
 
 ## Phase 4 — Intégration M580 réelle ⏳

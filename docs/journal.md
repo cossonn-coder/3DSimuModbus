@@ -6,6 +6,53 @@ surpris, décisions prises (reportées dans memory.md), état des tests.
 
 ---
 
+## 2026-07-15 — Ouverture Sprint 2 : cinématique visuelle (animer la 3D depuis la sim)
+
+**Contexte** : sprint 1 clos (chaîne Modbus bout-en-bout + maquette 3D **statique**). Archi du sprint 2
+figée à la conception (`sprint_02_cinematique_visuelle.md`, décisions D-a..D-f). Prérequis matériel
+confirmé : **Godot 4.6 .NET disponible en session** → le sprint est validable end-to-end et **solde
+D-010** (smoke-test brique 5 jamais lancé).
+
+**Objectif** : faire vivre la maquette. `_PhysicsProcess` rejoue la boucle Modbus (`PullCommands →
+Tick → PushReturns`, patron `SimHost`) à **pas fixe** (accumulateur, `Tick` à 10 Hz), puis
+`ApplyToScene` recopie l'état sim sur les transforms (snap 10 Hz). Glue Godot pure.
+
+**Orchestration** (`/sprint open 02`, séquentiel strict autonome, un sous-agent cold-start/sous-sprint) :
+- **S2.1** — scène-hôte Modbus (boucle + serveur + garde-fous ; `ApplyToScene` = stub vide).
+- **S2.2** — animation `ApplyToScene` (mapping tiges/palettes) + `smoke_anim.ps1` ; **solde D-010**.
+Les deux partagent `CarrouselScene.cs` → **séquentiels** (S2.1 puis S2.2).
+
+**État tests à l'ouverture** : core 87 verts + serveur, 4 pytest full-chain verts (contre `SimHost`).
+
+**Résultat (clôture 2026-07-15)** — sprint **livré et validé end-to-end**, DoD atteinte :
+- **S2.1** (commit `31ac4d5`) : `CarrouselScene` devenue hôte Modbus. Build **0 erreur**, **90 tests**
+  (87 core + 3 serveur), **scène ≡ SimHost** (4 pytest full-chain verts contre la scène en loopback:502),
+  non-régression SimHost 4/4. Écart nécessaire : `ProjectReference` → `CarrouselServer` ajouté au
+  `.csproj` Godot (anticipé dans l'en-tête de `CarrouselServer.csproj`).
+- **S2.2** (commit `8dc0c22`) : `ApplyToScene` animée (tiges +Y, palettes `OnCircle` + rotation).
+  `smoke_anim.ps1` **vert** (rod1 Y 0,125→0,275 m ; palettes 0/120/240 → 90/50/70 = accumulation
+  correcte ; heartbeat 0→211). 4 pytest toujours verts.
+- **Validation visuelle** (éditeur, `demo_sprint_02.ps1`, commit `d4b2d71`) : rotation **CCW**, postes
+  90°/270°, tige qui monte à l'extension et redescend au rappel ressort, accumulation derrière un vérin
+  engagé — **confirmée à l'œil par Nico**. → **D-010 soldée** (headless + humain).
+
+**Ce qui a surpris** : à la validation, la maquette restait figée alors que le heartbeat vivait.
+Cause = **deux serveurs sur le port 502** (un `SimHost` reliquat des vérifs + la scène) ; le
+`server.Start()` de la scène avait **échoué en silence**. D'où le pré-vol du port dans
+`demo_sprint_02.ps1` et la dette **D-013** (échec de bind non signalé à l'écran).
+
+**Décisions actées** (voir `memory.md`) : boucle à pas fixe + accumulateur ; garde-fous heartbeat
+(`low_processor_mode=false` + clamp + guard) ; snap 10 Hz (D-d) ; `BindLoopback` exporté ; **script
+de démo visuelle guidée à livrer à chaque sprint**.
+
+**Dettes** : **D-010 soldée**. Nouvelles : **D-011** (duplication `StepSim`↔`SimHost`, assumée),
+**D-012** (throttling fenêtre non-focus, à surveiller), **D-013** (bind 502 silencieux).
+
+**Suite** : reste hors sprint (diff canonique Python↔C#, polish visuel, IHM debug) ; Phase 4 =
+intégration M580 réelle. **⚠ Toujours aucun remote git** → 3 commits locaux, push impossible.
+
+---
+
 ## 2026-07-15 — Clôture Sprint 1 (brique 5 livrée, chaîne Modbus + maquette statique complètes)
 
 **Contexte** : dernière brique du sprint 1 — la scène 3D statique, première scène Godot du projet.
