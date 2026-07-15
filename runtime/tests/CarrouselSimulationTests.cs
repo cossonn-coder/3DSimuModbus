@@ -124,14 +124,50 @@ public class CarrouselSimulationTests
     }
 
     [Fact]
-    public void Presence_b1_b2_a_zero_en_4a()
+    public void Presence_b1_b2_fausses_au_repos()
     {
-        // 4a ne modelise pas encore les palettes : B1/B2 doivent rester a 0 (rempli en 4b).
+        // Convoyeur a l'arret : les palettes restent a 0/120/240, aucune n'est dans une fenetre
+        // de poste (90/270) -> B1 et B2 a 0. (En 4a ce test verrouillait « pas encore de palettes » ;
+        // en 4b il verrouille le comportement REEL au repos.)
         var store = new ModbusDataStore(Pivot);
         var sim = new CarrouselSimulation(Pivot);
         sim.Tick(store, 0.1);
         Assert.False(GetRet(store, Pivot.GetSignal("B1", "ret_active")));
         Assert.False(GetRet(store, Pivot.GetSignal("B2", "ret_active")));
+    }
+
+    [Fact]
+    public void B1_passe_a_1_quand_une_palette_atteint_le_poste_90()
+    {
+        // Convoyeur en marche, aucun verin : la palette partie de 0° tourne (20°/s) et entre dans
+        // la fenetre du poste 90° (±4°) apres ~44 ticks (pos ~= 88°). B2 reste a 0 (rien pres de 270).
+        var store = new ModbusDataStore(Pivot);
+        var sim = new CarrouselSimulation(Pivot);
+        SetCmd(store, Pivot.GetSignal("KM1", "cmd_run"), true);
+
+        for (int i = 0; i < 44; i++) sim.Tick(store, 0.1);
+
+        Assert.True(GetRet(store, Pivot.GetSignal("B1", "ret_active")));
+        Assert.False(GetRet(store, Pivot.GetSignal("B2", "ret_active")));
+    }
+
+    [Fact]
+    public void YV1_sorti_bloque_une_palette_au_poste_et_maintient_B1()
+    {
+        // Convoyeur en marche + YV1 sorti : une palette vient buter au poste 90° et s'y park.
+        // B1 doit etre a 1 et le RESTER (la palette bloquee reste dans la fenetre), tour apres tour.
+        var store = new ModbusDataStore(Pivot);
+        var sim = new CarrouselSimulation(Pivot);
+        SetCmd(store, Pivot.GetSignal("KM1", "cmd_run"), true);
+        SetCmd(store, Pivot.GetSignal("cylinder_1", "cmd_extend"), true);
+
+        // Assez de ticks pour : sortir YV1 (0.5 s), amener une palette au poste, puis tourner encore.
+        for (int i = 0; i < 120; i++) sim.Tick(store, 0.1);
+        Assert.True(GetRet(store, Pivot.GetSignal("B1", "ret_active")));
+
+        // Une palette est bien immobilisee a ~90° (blocage effectif, pas un simple passage).
+        var angles = sim.Pallets.AnglesDeg;
+        Assert.Contains(angles, a => Math.Abs(a - 90.0) < 1.0);
     }
 
     [Fact]

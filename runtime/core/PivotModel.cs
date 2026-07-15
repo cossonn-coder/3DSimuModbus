@@ -37,6 +37,17 @@ public sealed class PivotException : Exception
 /// <summary>Disposition resolue d'une zone Modbus (base absolue + taille).</summary>
 public readonly record struct ZoneLayout(string Name, int Base, int SizeWords, string Description);
 
+/// <summary>
+/// Cinematique des palettes, resolue depuis le bloc <c>kinematics</c> du pivot (brique 4b).
+/// Purement descriptive : le PivotModel transporte les nombres, c'est <c>PalletSet</c> qui les
+/// anime. <c>Ccw</c> vient de <c>kinematics.path.direction</c> (sens de rotation du convoyeur).
+/// </summary>
+public readonly record struct KinematicsInfo(
+    int PalletCount,                    // nombre de palettes (kinematics.pallets.count)
+    double[] InitialPositionsDeg,       // positions angulaires de depart, normalisees [0..360)
+    double MinGapDeg,                   // ecart angulaire minimal en accumulation
+    bool Ccw);                          // true = rotation trigonometrique (angle croissant)
+
 /// <summary>Un signal resolu, pret a etre interroge sur le bus (adresse absolue calculee).</summary>
 public readonly record struct Signal(
     string ComponentId,   // id du composant proprietaire (ou "_heartbeat")
@@ -122,6 +133,19 @@ public sealed class PivotModel
     public IReadOnlyList<Signal> AllSignals { get; }
     public Signal Heartbeat { get; }
 
+    // Cinematique palettes (brique 4b). Optionnelle au chargement : les pivots minimaux de test
+    // (mapping Modbus seul) n'ont pas de bloc `kinematics`. On ne le rend obligatoire qu'au POINT
+    // D'USAGE — un consommateur qui la demande sur un pivot sans palettes obtient une erreur claire,
+    // plutot qu'un chargement qui echouerait pour des tests qui ne s'interessent qu'aux adresses.
+    private readonly KinematicsInfo? _kinematics;
+
+    /// <summary>
+    /// Cinematique des palettes (positions initiales, min_gap, sens). Leve <see cref="PivotException"/>
+    /// si le pivot n'a pas de bloc <c>kinematics.pallets</c> (contrat incomplet pour la simulation 4b).
+    /// </summary>
+    public KinematicsInfo Kinematics =>
+        _kinematics ?? throw new PivotException("Section 'kinematics.pallets' absente du pivot");
+
     // Parametres reseau du serveur Modbus, tires du pivot (jamais en dur cote code) :
     //   - Port : port d'ecoute TCP (502 dans le pivot V1) ;
     //   - UnitId : identifiant d'unite Modbus que le M580 scrutera (1 dans le pivot V1).
@@ -144,7 +168,8 @@ public sealed class PivotModel
         Signal heartbeat,
         int heartbeatPeriodMs,
         int port,
-        byte unitId)
+        byte unitId,
+        KinematicsInfo? kinematics)
     {
         Zones = zones;
         Components = components;
@@ -155,6 +180,7 @@ public sealed class PivotModel
         HeartbeatPeriodMs = heartbeatPeriodMs;
         Port = port;
         UnitId = unitId;
+        _kinematics = kinematics;
     }
 
     // --- Accesseurs (resolvent depuis le pivot ; jamais d'adresse absolue en dur ailleurs) ---
@@ -292,7 +318,11 @@ public sealed class PivotModel
         if (allSignals.Count <= 1)
             throw new PivotException("Aucun signal de composant resolu depuis le pivot");
 
-        return new PivotModel(zones, components, byTag, signalsByTag, allSignals, heartbeat, heartbeatPeriodMs, port, (byte)unitId);
+        // Cinematique palettes (brique 4b) : parse ADDITIF, optionnel au chargement (cf. _kinematics).
+        // Present-mais-malforme => PivotException ; absent => null (rendu obligatoire a l'usage seul).
+        var kinematics = ResolveKinematics(root);
+
+        return new PivotModel(zones, components, byTag, signalsByTag, allSignals, heartbeat, heartbeatPeriodMs, port, (byte)unitId, kinematics);
     }
 
     private static JsonDocument ParseOrThrow(string text, string path)
@@ -382,6 +412,71 @@ public sealed class PivotModel
         return outp;
     }
 
+    /// <summary>
+    /// Resout le bloc cinematique (<c>kinematics.pallets</c> + <c>kinematics.path.direction</c>).
+    /// Retourne <c>null</c> si la section <c>kinematics</c> est absente (pivot minimal de mapping
+    /// Modbus) ; leve <see cref="PivotException"/> si elle est PRESENTE mais incoherente. DEFENSIF :
+    /// on pilote une simulation reelle, une cinematique bancale doit echouer tot et clairement.
+    /// </summary>
+    private static KinematicsInfo? ResolveKinematics(JsonElement root)
+    {
+        if (root.ValueKind != JsonValueKind.Object
+            || !root.TryGetProperty("kinematics", out var kin)
+            || kin.ValueKind != JsonValueKind.Object)
+            return null;   // pivot sans palettes : legitime (mapping Modbus seul, fixtures de test)
+
+        // Sens de rotation : kinematics.path.direction, "ccw" (trigonometrique) ou "cw".
+        if (!kin.TryGetProperty("path", out var path) || path.ValueKind != JsonValueKind.Object)
+            throw new PivotException("kinematics.path absent");
+        string dir = GetString(path, "direction", "");
+        bool ccw = dir switch
+        {
+            "ccw" => true,
+            "cw" => false,
+            _ => throw new PivotException($"kinematics.path.direction doit etre 'ccw' ou 'cw' : '{dir}'"),
+        };
+
+        // Bloc pallets : count, initial_positions_deg, min_gap_deg.
+        if (!kin.TryGetProperty("pallets", out var pal) || pal.ValueKind != JsonValueKind.Object)
+            throw new PivotException("kinematics.pallets absent");
+        if (!TryGetInt(pal, "count", out int count) || count <= 0)
+            throw new PivotException("kinematics.pallets.count absent ou <= 0");
+        if (!TryGetDouble(pal, "min_gap_deg", out double minGap) || minGap < 0)
+            throw new PivotException("kinematics.pallets.min_gap_deg absent ou negatif");
+
+        double[] positions = ReadDoubleArray(pal, "initial_positions_deg");
+        if (positions.Length != count)
+            throw new PivotException(
+                $"kinematics.pallets : {positions.Length} initial_positions_deg pour count={count}");
+
+        // Invariant geometrique : N palettes espacees d'au moins min_gap doivent tenir sur 360°,
+        // sinon l'accumulation deadlocke (place impossible). On echoue plutot que de tourner en rond.
+        if (count * minGap > 360.0)
+            throw new PivotException(
+                $"kinematics.pallets : {count} palettes x min_gap {minGap}° > 360° (placement impossible)");
+
+        // Normalisation defensive des positions dans [0..360) : on replie des angles hors plage
+        // (ex. -90, 450) plutot que d'imposer une contrainte de saisie au redacteur du pivot.
+        for (int i = 0; i < positions.Length; i++)
+            positions[i] = ((positions[i] % 360.0) + 360.0) % 360.0;
+
+        return new KinematicsInfo(count, positions, minGap, ccw);
+    }
+
+    private static double[] ReadDoubleArray(JsonElement obj, string name)
+    {
+        if (!obj.TryGetProperty(name, out var arr) || arr.ValueKind != JsonValueKind.Array)
+            throw new PivotException($"{name} absent ou n'est pas un tableau");
+        var outp = new List<double>();
+        foreach (var el in arr.EnumerateArray())
+        {
+            if (el.ValueKind != JsonValueKind.Number || !el.TryGetDouble(out var d))
+                throw new PivotException($"{name} : valeur non numerique");
+            outp.Add(d);
+        }
+        return outp.ToArray();
+    }
+
     private static void CheckBounds(Signal sig, Dictionary<string, ZoneLayout> zones)
     {
         var zone = zones[sig.Zone];
@@ -422,6 +517,19 @@ public sealed class PivotModel
             && obj.TryGetProperty(name, out var v)
             && v.ValueKind == JsonValueKind.Number
             && v.TryGetInt32(out value))
+        {
+            return true;
+        }
+        return false;
+    }
+
+    private static bool TryGetDouble(JsonElement obj, string name, out double value)
+    {
+        value = 0;
+        if (obj.ValueKind == JsonValueKind.Object
+            && obj.TryGetProperty(name, out var v)
+            && v.ValueKind == JsonValueKind.Number
+            && v.TryGetDouble(out value))
         {
             return true;
         }

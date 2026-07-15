@@ -6,6 +6,36 @@ surpris, décisions prises (reportées dans memory.md), état des tests.
 
 ---
 
+## 2026-07-15 — Sprint 1, brique 4b : palettes (rotation, accumulation, présence B1/B2)
+
+**Objectif** : ajouter, de façon additive, le mouvement des palettes, leur blocage/accumulation
+derrière un vérin engagé, et remplir B1/B2. Lever le point dur annoncé (accumulation circulaire).
+
+**Fait** :
+- `runtime/core/PivotModel.cs` : parse additif `Kinematics` (count, positions initiales, `min_gap`,
+  sens). Optionnel au `Load` (fixtures de mapping), obligatoire à l'usage (accès défensif).
+- `runtime/core/PalletSet.cs` (nouveau) : modèle pur. Rotation, blocage, accumulation, présence.
+- `runtime/core/CarrouselSimulation.cs` : extension `Tick` — postes bloqués (vérin engagé) →
+  `pallets.Advance` (rotation pilotée par `Conveyor.IsRunning`) → écriture B1/B2 via `WriteBit`.
+- Tests : `PalletSetTests` (nouveau, 14), ajouts `PivotModelTests` (6) et `CarrouselSimulationTests` (2).
+
+**Ce qui a surpris (dans le bon sens)** : le point dur « accumulation circulaire » (incertitude
+HAUTE) s'est **dissous** par la formulation, comme l'inversion mi-course du vérin en 4a. Deux idées :
+(1) **espace « sens de marche »** — repère où avancer = angle croissant, réflexion involutive pour
+`cw`, un seul chemin de code ; (2) **écart en `mod 360`** — efface la couture 0°/360°, rend le
+blocage vérin trivial (obstacle = un angle de plus). Relaxation itérative (`count` passes) pour la
+chaîne. Résultat : **aucune simplification**, donc **D-008 non créée**.
+
+**Décisions** (reportées `memory.md`) : algo d'accumulation acté ; rotation palettes pilotée par
+KM1_AUX (moteur confirmé), pas la commande brute ; vitesse = `KM1.speed_deg_per_s`.
+
+**État des tests** : **82 core + 3 serveur** verts (`dotnet test`, les 60 core d'avant intacts).
+**4 pytest full-chain restent verts** (SimHost relancé → `4 passed`). D-002/D-003 inchangées.
+
+**Suite** : brique 5 — scène 3D Godot (`sprint_01_brique_05_scene3d.md`).
+
+---
+
 ## 2026-07 — Phase 0 : conception et modèle pivot
 
 **Objectif** : figer le contrat central (JSON pivot) et l'organisation du projet.

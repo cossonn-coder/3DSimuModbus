@@ -189,6 +189,90 @@ public class PivotModelTests
         Assert.Equal(270.0, Mapping.GetComponent("B2").GetParam("station_angle_deg"));
     }
 
+    // --- Cinematique palettes (extension additive brique 4b) ---
+
+    [Fact]
+    public void Kinematics_du_pivot_reel()
+    {
+        var k = Mapping.Kinematics;
+        Assert.Equal(3, k.PalletCount);
+        Assert.Equal(new[] { 0.0, 120.0, 240.0 }, k.InitialPositionsDeg);
+        Assert.Equal(20.0, k.MinGapDeg);
+        Assert.True(k.Ccw);   // path.direction = "ccw"
+    }
+
+    [Fact]
+    public void Kinematics_absente_leve_a_l_usage()
+    {
+        // Le pivot minimal (mapping Modbus seul) se charge SANS erreur, mais reclamer la
+        // cinematique doit echouer clairement : rendue obligatoire au point d'usage, pas au Load.
+        var m = PivotModel.Load(WriteTemp(MinimalPivot));
+        var ex = Assert.Throws<PivotException>(() => m.Kinematics);
+        Assert.Contains("kinematics", ex.Message);
+    }
+
+    [Fact]
+    public void Kinematics_count_incoherent_echoue()
+    {
+        // count = 3 mais 2 positions fournies : incoherence de contrat.
+        string json = MinimalPivot.Replace("\"components\"", """
+            "kinematics": {
+              "path": { "direction": "ccw" },
+              "pallets": { "count": 3, "initial_positions_deg": [0.0, 120.0], "min_gap_deg": 20.0 }
+            },
+            "components"
+            """);
+        var ex = Assert.Throws<PivotException>(() => PivotModel.Load(WriteTemp(json)));
+        Assert.Contains("initial_positions_deg", ex.Message);
+    }
+
+    [Fact]
+    public void Kinematics_direction_invalide_echoue()
+    {
+        string json = MinimalPivot.Replace("\"components\"", """
+            "kinematics": {
+              "path": { "direction": "diagonale" },
+              "pallets": { "count": 1, "initial_positions_deg": [0.0], "min_gap_deg": 20.0 }
+            },
+            "components"
+            """);
+        var ex = Assert.Throws<PivotException>(() => PivotModel.Load(WriteTemp(json)));
+        Assert.Contains("direction", ex.Message);
+    }
+
+    [Fact]
+    public void Kinematics_placement_impossible_echoue()
+    {
+        // 20 palettes x 20° = 400° > 360° : impossible a placer, deadlock d'accumulation garanti.
+        string json = MinimalPivot.Replace("\"components\"", """
+            "kinematics": {
+              "path": { "direction": "ccw" },
+              "pallets": { "count": 20, "initial_positions_deg": [
+                0,18,36,54,72,90,108,126,144,162,180,198,216,234,252,270,288,306,324,342],
+                "min_gap_deg": 20.0 }
+            },
+            "components"
+            """);
+        var ex = Assert.Throws<PivotException>(() => PivotModel.Load(WriteTemp(json)));
+        Assert.Contains("360", ex.Message);
+    }
+
+    [Fact]
+    public void Kinematics_positions_normalisees()
+    {
+        // Angles hors [0..360) replies defensivement (450 -> 90, -30 -> 330).
+        string json = MinimalPivot.Replace("\"components\"", """
+            "kinematics": {
+              "path": { "direction": "cw" },
+              "pallets": { "count": 2, "initial_positions_deg": [450.0, -30.0], "min_gap_deg": 20.0 }
+            },
+            "components"
+            """);
+        var k = PivotModel.Load(WriteTemp(json)).Kinematics;
+        Assert.Equal(new[] { 90.0, 330.0 }, k.InitialPositionsDeg);
+        Assert.False(k.Ccw);
+    }
+
     [Fact]
     public void Param_absent_echoue()
     {

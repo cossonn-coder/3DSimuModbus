@@ -48,12 +48,17 @@ public sealed class CarrouselSimulation
         public Signal RetRetracted { get; }
         public Signal RetExtended { get; }
 
-        private CylinderUnit(CylinderState state, Signal cmdExtend, Signal retRetracted, Signal retExtended)
+        // Angle du poste que ce verin bloque (deg). Quand le verin est ENGAGE, ce poste devient un
+        // obstacle fixe pour les palettes (brique 4b) : c'est ce que Tick transmet a PalletSet.
+        public double StationAngleDeg { get; }
+
+        private CylinderUnit(CylinderState state, Signal cmdExtend, Signal retRetracted, Signal retExtended, double stationAngleDeg)
         {
             State = state;
             CmdExtend = cmdExtend;
             RetRetracted = retRetracted;
             RetExtended = retExtended;
+            StationAngleDeg = stationAngleDeg;
         }
 
         public static CylinderUnit FromPivot(PivotModel pivot, string compId)
@@ -71,7 +76,33 @@ public sealed class CarrouselSimulation
                 state,
                 pivot.GetSignal(compId, "cmd_extend"),
                 pivot.GetSignal(compId, "ret_retracted"),
-                pivot.GetSignal(compId, "ret_extended"));
+                pivot.GetSignal(compId, "ret_extended"),
+                c.GetParam("station_angle_deg"));
+        }
+    }
+
+    // Regroupe un capteur de presence (B1/B2) avec le poste qu'il surveille et sa fenetre : c'est
+    // le « cablage » entre PalletSet.PresentAt et l'adresse du bit ret_active, resolu au constructeur.
+    private sealed class PresenceUnit
+    {
+        public Signal RetActive { get; }
+        public double StationAngleDeg { get; }
+        public double WindowDeg { get; }
+
+        private PresenceUnit(Signal retActive, double stationAngleDeg, double windowDeg)
+        {
+            RetActive = retActive;
+            StationAngleDeg = stationAngleDeg;
+            WindowDeg = windowDeg;
+        }
+
+        public static PresenceUnit FromPivot(PivotModel pivot, string compId)
+        {
+            var c = pivot.GetComponent(compId);
+            return new PresenceUnit(
+                pivot.GetSignal(compId, "ret_active"),
+                c.GetParam("station_angle_deg"),
+                c.GetParam("window_deg"));
         }
     }
 
@@ -83,6 +114,13 @@ public sealed class CarrouselSimulation
 
     private readonly CylinderUnit _cyl1;
     private readonly CylinderUnit _cyl2;
+
+    // Palettes (brique 4b) : modele pur anime chaque tick. Sa vitesse est celle du convoyeur
+    // (KM1.speed_deg_per_s) ; ses capteurs de presence pilotent B1/B2.
+    private readonly PalletSet _pallets;
+    private readonly double _palletSpeedDegPerS;
+    private readonly PresenceUnit _b1;
+    private readonly PresenceUnit _b2;
 
     // Compteur heartbeat : ushort => rollover a 65535 -> 0 automatique (spec : rollover libre).
     private ushort _heartbeat;
@@ -104,6 +142,13 @@ public sealed class CarrouselSimulation
 
         _cyl1 = CylinderUnit.FromPivot(pivot, "cylinder_1");
         _cyl2 = CylinderUnit.FromPivot(pivot, "cylinder_2");
+
+        // Palettes : positions/ecart/sens viennent de kinematics ; la vitesse est celle du convoyeur.
+        var k = pivot.Kinematics;
+        _pallets = new PalletSet(k.InitialPositionsDeg, k.MinGapDeg, k.Ccw);
+        _palletSpeedDegPerS = km1.GetParam("speed_deg_per_s");
+        _b1 = PresenceUnit.FromPivot(pivot, "presence_station_1");
+        _b2 = PresenceUnit.FromPivot(pivot, "presence_station_2");
     }
 
     // --- Accces lecture seule a l'etat interne (pour la 3D brique 5 et les tests) ---
@@ -118,6 +163,9 @@ public sealed class CarrouselSimulation
 
     /// <summary>Retour de marche du convoyeur (contact KM1_AUX).</summary>
     public ConveyorState Conveyor => _conveyor;
+
+    /// <summary>Etat des palettes (positions angulaires) — lu par la 3D (brique 5) et les tests.</summary>
+    public PalletSet Pallets => _pallets;
 
     /// <summary>Valeur courante du compteur heartbeat (dernier publie).</summary>
     public ushort Heartbeat => _heartbeat;
@@ -145,6 +193,13 @@ public sealed class CarrouselSimulation
         _cyl1.State.Advance(dtSeconds, extend1);
         _cyl2.State.Advance(dtSeconds, extend2);
 
+        // 3bis. Palettes (brique 4b) : un verin ENGAGE (position > block_threshold) transforme son
+        //       poste en obstacle fixe. On collecte les postes bloques APRES l'avance des verins
+        //       (etat courant), puis on avance les palettes ; leur rotation suit le convoyeur REEL
+        //       (IsRunning = KM1_AUX), pas la commande brute, coherent avec le comportement physique.
+        double[] blocked = CollectBlockedStations();
+        _pallets.Advance(dtSeconds, _conveyor.IsRunning, _palletSpeedDegPerS, blocked);
+
         // 4. Heartbeat : +1 par tick, rollover ushort naturel (preuve de vie pour le PLC).
         _heartbeat++;
 
@@ -156,7 +211,10 @@ public sealed class CarrouselSimulation
         _km1Aux.WriteBit(ref ret[_km1Aux.WordRel], _conveyor.IsRunning);
         WriteCylinder(ret, _cyl1);
         WriteCylinder(ret, _cyl2);
-        // B1/B2 : laisses a 0 en 4a (brique 4b les remplira).
+
+        // B1/B2 (brique 4b) : presence d'une palette dans la fenetre de chaque poste.
+        WritePresence(ret, _b1);
+        WritePresence(ret, _b2);
 
         // 6. Publication d'un bloc en fin de tick : le PLC lira un jeu de retours coherent.
         store.PublishReturns(ret);
@@ -167,5 +225,24 @@ public sealed class CarrouselSimulation
     {
         u.RetRetracted.WriteBit(ref ret[u.RetRetracted.WordRel], u.State.IsRetracted);
         u.RetExtended.WriteBit(ref ret[u.RetExtended.WordRel], u.State.IsExtended);
+    }
+
+    /// <summary>
+    /// Postes actuellement bloques : l'angle de chaque verin ENGAGE (un verin rentre ne bloque rien).
+    /// Ces angles deviennent des obstacles fixes pour <see cref="PalletSet.Advance"/>.
+    /// </summary>
+    private double[] CollectBlockedStations()
+    {
+        var blocked = new List<double>(2);
+        if (_cyl1.State.IsEngaged) blocked.Add(_cyl1.StationAngleDeg);
+        if (_cyl2.State.IsEngaged) blocked.Add(_cyl2.StationAngleDeg);
+        return blocked.ToArray();
+    }
+
+    /// <summary>Encode le bit de presence d'un poste (B1/B2) : palette dans la fenetre du capteur.</summary>
+    private void WritePresence(ushort[] ret, PresenceUnit u)
+    {
+        bool present = _pallets.PresentAt(u.StationAngleDeg, u.WindowDeg);
+        u.RetActive.WriteBit(ref ret[u.RetActive.WordRel], present);
     }
 }

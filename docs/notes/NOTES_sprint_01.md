@@ -390,3 +390,86 @@ cadence, vérin, convoyeur, boucle sim). **Les 4 scénarios pytest full-chain PA
 en écoute puis `pytest test_modbus_chain.py -v` → 4 passed). Aucune dette nouvelle en 4a (l'accumulation
 et son éventuelle dette D-008 sont le sujet de 4b). Prochaine pièce : **brique 4b** (palettes,
 accumulation, présence B1/B2). Amorce : `sprint_01_brique_04b_palettes.md`.
+
+## 5. Brique 4b — palettes : rotation, accumulation, présence B1/B2
+
+### Ce que 4b ajoute
+
+4a laissait B1/B2 à 0 (pas de palettes). 4b ajoute le **mouvement des palettes** sur le cercle,
+leur **blocage** derrière un vérin engagé, leur **accumulation** à écart minimal, et remplit enfin
+**B1/B2**. Tout est **additif** : un nouveau modèle pur (`PalletSet`), une extension du `Tick`, et
+un parse additif de plus dans `PivotModel` (`Kinematics`). Aucune ligne de 4a n'a changé de sens.
+
+### Le point dur annoncé — l'accumulation circulaire — et comment il s'est dissous
+
+L'amorce classait l'accumulation en **incertitude HAUTE** avec quatre pièges : couture 0°/360°,
+chaîne de 3 palettes, vérin = obstacle, dépendance au sens. La bonne **formulation** les fait tous
+disparaître, exactement comme le clamp du vérin en 4a avait dissous l'inversion mi-course.
+
+**Idée n°1 — l'espace « sens de marche ».** Une palette avance dans le sens de rotation. Plutôt que
+dupliquer la logique `ccw`/`cw`, on travaille en interne dans un repère `phi` où *avancer = phi
+croissant* : pour `ccw`, `phi = angle` ; pour `cw`, `phi = 360 − angle`. Cette réflexion est une
+**involution** (sa propre inverse) et **préserve les distances angulaires** — on l'applique donc
+aux deux frontières (entrée/sortie), et tout le calcul interne est *forward-only*, **un seul chemin
+de code**. Le sens du pivot est honoré sans une seule branche `if (cw)` dans la mécanique.
+
+**Idée n°2 — l'écart en `mod 360`.** La contrainte d'accumulation s'écrit
+`gap = (phi_devant − phi_ici) mod 360 ≥ min_gap`. Écrire l'écart en `mod 360` **efface la couture
+0°/360°** : plus besoin de trier les palettes ni de traiter « la palette devant est de l'autre côté
+de 0 ». Un poste bloqué (vérin engagé) devient juste un angle `s` de plus où l'on clampe l'avance —
+la « palette virtuelle arrêtée » du piège n°3 n'a besoin d'aucun code spécial.
+
+**Idée n°3 — la relaxation itérative.** Chaque tick : (1) cible libre `phi + move`, clampée au poste
+bloqué le plus proche devant ; (2) quelques passes qui repoussent chaque palette pour tenir
+`min_gap` avec celle de devant. Les cibles ne font que **décroître** et sont bornées → convergence
+garantie. On fait `count` passes (= nb de palettes) : ça suffit à propager un arrêt de tête jusqu'à
+la queue, **même quand la chaîne franchit la couture** (cas vérifié par un test dédié). Pour 3
+palettes, c'est 3 passes — coût nul.
+
+Le prototype exigé par l'amorce (`Trois_palettes_s_accumulent_derriere_un_poste`) donne bien
+**90 / 70 / 50** (tête au poste, suivantes à `min_gap`). Un second test verrouille le **même
+comportement à la couture** (poste 10°, palettes à 10 / 350 / 330).
+
+### Blocage : le vérin engagé, obstacle fixe (câblage dans `Tick`)
+
+`CylinderState.IsEngaged` (position > `block_threshold`, exposé dès 4a) désigne un vérin assez sorti
+pour bloquer. Dans `Tick`, **après** l'avance des vérins, on collecte les angles des postes dont le
+vérin est engagé (`CollectBlockedStations`) et on les passe à `PalletSet.Advance`. La rotation des
+palettes suit le **convoyeur réel** (`Conveyor.IsRunning` = KM1_AUX), pas la commande brute : c'est
+le moteur *confirmé en marche* qui entraîne, cohérent avec la physique et avec l'ordre du `Tick`.
+
+### Présence B1/B2 : distance angulaire à la fenêtre
+
+`PalletSet.PresentAt(station, window)` renvoie vrai si une palette est à moins de `window/2` du
+poste (distance angulaire = le plus court des deux arcs, donc **wrap-safe** elle aussi). Une palette
+bloquée *au* poste est à distance 0 → présente : blocage et présence restent cohérents (un test le
+vérifie). Les deux `PresenceUnit` (B1, B2) câblent `PresentAt` au bit `ret_active` via `WriteBit`,
+dans le même mot `ret[1]` que S11…KM1_AUX — bits distincts, aucune collision.
+
+### `PivotModel.Kinematics` — parse additif, obligatoire *à l'usage*
+
+Nouveau `KinematicsInfo` (count, positions initiales, `min_gap`, sens) résolu depuis le bloc
+`kinematics`. Subtilité : les **pivots minimaux de test** (mapping Modbus seul) n'ont pas de bloc
+`kinematics`. Le rendre obligatoire au `Load` casserait ces fixtures. Choix : parse **optionnel au
+chargement**, mais la propriété `Kinematics` **lève clairement** si on la réclame sur un pivot sans
+palettes — l'exigence est portée **au point d'usage**, pas au chargement. Défensif par ailleurs :
+`count` ≠ nombre de positions, direction hors `{ccw, cw}`, ou `count × min_gap > 360°` (placement
+géométriquement impossible → deadlock d'accumulation) lèvent `PivotException`. Positions repliées
+dans `[0..360)` par tolérance.
+
+### Pas de dette D-008
+
+L'amorce prévoyait `D-008` **si** une simplification sacrifiait la spec (couture ignorée, blocage
+strictement pairwise…). La formulation `mod 360` + relaxation a permis de traiter **tous** les cas
+sans raccourci → **D-008 n'est pas créée**. Les dettes **D-002** (collision latérale : une palette
+ayant déjà franchi le poste avant l'engagement n'est pas rappelée — vérifié par un test) et
+**D-003** (arrêt/départ instantané, pas de rampe) restent inchangées et assumées.
+
+### Résultat
+
+`PalletSet` + `PivotModel.Kinematics` + extension `CarrouselSimulation.Tick` livrés. **82 verts**
+(`dotnet test` core : 60 → 82, +6 Kinematics, +14 PalletSet, +2 simulation ; les 60 d'avant
+intacts) + **3 intégration serveur** verts. **Les 4 scénarios pytest full-chain restent verts**
+(SimHost relancé, `pytest test_modbus_chain.py` → 4 passed) — B1/B2 n'en font pas partie mais la
+non-régression du bout-en-bout est confirmée. Prochaine pièce : **brique 5** (scène 3D Godot).
+Amorce : `sprint_01_brique_05_scene3d.md`.

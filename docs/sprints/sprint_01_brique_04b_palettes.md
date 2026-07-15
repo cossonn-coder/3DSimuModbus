@@ -60,14 +60,14 @@ postes bloqués (vérin engagé) → `pallets.Advance(...)` → écrit B1/B2 via
 **créer la dette D-008** dans `docs/dettes.md` et la documenter dans `NOTES §4`. Rappel dette
 existante **D-002** (collision latérale non simulée) et **D-003** (pas de rampe, arrêt instantané).
 
-## Definition of Done (4b)
+## Definition of Done (4b) — livrée 2026-07-15
 
-- [ ] `PivotModel.Kinematics` parsé (additif, tests verts).
-- [ ] `PalletSet` : rotation ccw à `speed_deg_per_s`, blocage si vérin engagé au poste.
-- [ ] **Accumulation** `min_gap_deg` prototypée + test « 3 palettes derrière YV1 sorti » vert.
-- [ ] B1/B2 sur `window_deg` (test : palette entre/sort de la fenêtre).
-- [ ] `CarrouselSimulation.Tick` remplit B1/B2 ; les 34+ verts et 4 pytest full-chain **restent verts**.
-- [ ] Dette D-008 créée si simplification. Points de design dans `NOTES §4`. Brief coché.
+- [x] `PivotModel.Kinematics` parsé (additif, tests verts).
+- [x] `PalletSet` : rotation ccw à `speed_deg_per_s`, blocage si vérin engagé au poste.
+- [x] **Accumulation** `min_gap_deg` prototypée + test « 3 palettes derrière YV1 sorti » vert (→ 90/70/50).
+- [x] B1/B2 sur `window_deg` (test : palette entre/sort de la fenêtre, bord inclus, couture 360°).
+- [x] `CarrouselSimulation.Tick` remplit B1/B2 ; **82 core + 3 serveur** verts et **4 pytest full-chain restent verts**.
+- [x] Dette D-008 **non créée** (aucune simplification : couture + chaîne + obstacle tous traités). Design → `NOTES §5`. Brief coché.
 
 ## Ordre de travail
 
