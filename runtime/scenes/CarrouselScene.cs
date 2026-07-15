@@ -7,13 +7,15 @@
 // SEUL fichier du projet qui depend de Godot ET du core a la fois : il fait le pont entre le
 // modele resolu (PivotModel) et le scene tree.
 //
-// --- Perimetre brique 5 : STATIQUE ---------------------------------------------------------
-// On affiche la machine a sa place ; on ne l'anime PAS. Aucune liaison au ModbusDataStore ni a
-// CarrouselSimulation, aucun _PhysicsProcess. Les palettes sont posees a leurs positions INITIALES
-// (kinematics.initial_positions_deg), pas au fil d'une simulation. La cinematique VISUELLE (lier la
-// 3D a la sim) est le sprint 3 : c'est pour elle qu'on nomme deja chaque noeud d'apres son `id`
-// pivot (les verins exposent un enfant « rod » adressable) — le binding futur les retrouvera sans
-// retoucher cette scene.
+// --- Perimetre : geometrie statique (brique 5) + hote Modbus vivant (S2.1) ----------------
+// La construction geometrique (BuildConveyor/BuildCylinder/BuildPallet/BuildSensorWindow) reste
+// STATIQUE : les palettes sont posees a leurs positions INITIALES (kinematics.initial_positions_deg),
+// la geometrie n'est pas encore pilotee par la simulation. Ce que S2.1  AJOUTE, de facon additive :
+// la scene demarre a _Ready la chaine Modbus (datastore + simulation + serveur, comme SimHost) et la
+// fait vivre dans _PhysicsProcess (heartbeat qui bat, retours qui repondent aux commandes du M580).
+// Le REFLET VISUEL de cet etat simule (bouger les tiges et les palettes) est le sous-sprint S2.2 :
+// c'est pour lui qu'on nomme deja chaque noeud d'apres son `id` pivot (les verins exposent un enfant
+// « rod » adressable) — le binding de S2.2 les retrouvera sans retoucher les builders ci-dessous.
 //
 // --- Repere (fige a l'archi de la brique, cf. NOTES_sprint_01 §5) ---------------------------
 // Sol = plan (X,Z) de Godot, Y = hauteur. Un angle theta du pivot (degres, 0 sur +X, CCW vu de
@@ -29,7 +31,9 @@
 // (inner_radius_m / outer_radius_m / height_m). Partout ailleurs, un mesh primitif suffit (D-b).
 
 using System.IO;
+using System.Net;
 using CarrouselCore;
+using CarrouselServer;
 using Godot;
 
 /// <summary>
@@ -45,6 +49,32 @@ public partial class CarrouselScene : Node3D
     private const float BodyHeight = 0.20f;
     private const float RodRadius = 0.025f;
     private const float SensorHeight = 0.15f;   // hauteur du volume translucide d'un capteur
+
+    // --- Hote Modbus vivant (S2.1) -------------------------------------------------------------
+    // Meme chaine que SimHost (brique 4a), mais cadencee par _PhysicsProcess au lieu d'un
+    // Stopwatch. Ces trois objets sont du CORE PUR (aucune dependance Godot) : le datastore est la
+    // source de verite, la simulation le « cerveau », le serveur le pont Modbus TCP. On les cree a
+    // _Ready depuis le pivot deja charge, puis on les fait vivre au rythme du moteur.
+    private ModbusDataStore _store = null!;
+    private CarrouselSimulation _sim = null!;
+    private ModbusServer _server = null!;
+
+    // Accumulateur du pas fixe (voir _PhysicsProcess). En secondes.
+    private double _accumulator;
+
+    // Periode du tick physique en SECONDES, tiree du pivot (heartbeat.period_ms / 1000). Ce n'est
+    // pas une vraie constante (elle depend du pivot), d'ou un champ readonly resolu a _Ready.
+    private double _periodS;
+
+    // Garde-fou anti-spirale de la mort : au plus MaxCatchup ticks de rattrapage par frame. Si le
+    // moteur prend du retard (frame longue), on rattrape un peu puis on lache le surplus plutot que
+    // de boucler indefiniment (ce qui figerait la frame ET le heartbeat).
+    private const int MaxCatchup = 5;
+
+    // Interface d'ecoute du serveur. Defaut IPAddress.Any (le M580 est un client DISTANT sur le
+    // LAN) ; true => IPAddress.Loopback pour un test local isole sans exposer le port 502. Lu par
+    // Godot AVANT _Ready (valeur figee dans la .tscn ou l'inspecteur), d'ou l'attribut [Export].
+    [Export] public bool BindLoopback { get; set; } = false;
 
     public override void _Ready()
     {
@@ -89,6 +119,77 @@ public partial class CarrouselScene : Node3D
 
         // Camera + lumiere pour l'inspection : mobilier de scene HORS contrat pivot (Q4 du brief).
         AddPresentation(center, (float)k.RadiusM);
+
+        // --- Demarrage de l'hote Modbus (S2.1) -------------------------------------------------
+        // On reutilise le MEME `pivot` deja charge (une seule lecture du contrat). Ordre calque sur
+        // SimHost : datastore -> simulation -> serveur -> Start(). Le serveur ecoute sur son propre
+        // thread ; c'est _PhysicsProcess (thread principal Godot) qui rythmera Pull/Tick/Push.
+        _store = new ModbusDataStore(pivot);
+        _sim = new CarrouselSimulation(pivot);
+        _periodS = pivot.HeartbeatPeriodMs / 1000.0;
+
+        IPAddress bind = BindLoopback ? IPAddress.Loopback : IPAddress.Any;
+        _server = new ModbusServer(pivot, _store, bind);
+        _server.Start();
+    }
+
+    /// <summary>
+    /// Coeur temps reel de la scene-hote : a chaque frame physique, on avance la simulation par pas
+    /// FIXE de <see cref="_periodS"/> (deterministe, heartbeat a cadence exacte), en decouplant le
+    /// rythme du moteur (delta variable) de celui de la cinematique. L'accumulateur encaisse l'ecart.
+    ///
+    /// Deux garde-fous contre la « spirale de la mort » (une frame longue qui en genere d'autres) :
+    ///   1. clamp de l'accumulateur a MaxCatchup * periode : on ne memorise jamais plus de retard
+    ///      qu'on ne peut en rattraper ;
+    ///   2. guard `ticks &lt; MaxCatchup` : au plus MaxCatchup pas par frame, le surplus est abandonne.
+    /// Sans eux, un pic de charge pourrait figer le thread principal (et donc le heartbeat vu du M580).
+    /// </summary>
+    public override void _PhysicsProcess(double delta)
+    {
+        _accumulator = System.Math.Min(_accumulator + delta, MaxCatchup * _periodS);
+
+        int ticks = 0;
+        while (_accumulator >= _periodS && ticks < MaxCatchup)
+        {
+            StepSim(_periodS);
+            _accumulator -= _periodS;
+            ticks++;
+        }
+
+        // Reflet visuel de l'etat simule (tiges/palettes) : stub en S2.1, corps livre en S2.2.
+        ApplyToScene();
+    }
+
+    /// <summary>
+    /// Un pas de simulation, exactement l'enchainement de SimHost : on aspire les commandes du fil
+    /// (Pull, sous server.Lock), on avance la cinematique de <paramref name="dt"/>, puis on publie
+    /// les retours sur le fil (Push, sous server.Lock). Frontiere Arch A : ce code tourne sur le
+    /// thread principal Godot, seul autorise a toucher datastore ET scene tree ; le thread propre du
+    /// serveur ne fait que servir le TCP. Volontairement NON factorise avec SimHost (2 sites, dette B).
+    /// </summary>
+    private void StepSim(double dt)
+    {
+        _server.PullCommands();
+        _sim.Tick(_store, dt);
+        _server.PushReturns();
+    }
+
+    /// <summary>
+    /// Applique l'etat de la simulation a la geometrie 3D (position des tiges de verin, des palettes).
+    /// STUB VIDE en S2.1 : aucun acces au scene tree encore — le mapping visuel est le sous-sprint S2.2.
+    /// </summary>
+    private void ApplyToScene()
+    {
+        // Corps livre en S2.2 (cinematique visuelle). Rien a faire ce sous-sprint.
+    }
+
+    /// <summary>
+    /// Liberation propre a la sortie de l'arbre : on dispose le serveur pour rendre le port 502.
+    /// Symetrique du Start() de _Ready ; sans ca, un relancement echouerait (port encore occupe).
+    /// </summary>
+    public override void _ExitTree()
+    {
+        _server.Dispose();
     }
 
     /// <summary>
