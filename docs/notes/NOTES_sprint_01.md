@@ -87,3 +87,95 @@ positions.
   `Get/SetBigEndian<ushort>` → accès **synchrone** sous `server.Lock`.
 - Le fichier `runtime/poc/` est **jetable** : il sera supprimé une fois la brique
   serveur livrée (il ne reflète pas le style final — adresses en dur tolérées pour un POC).
+
+---
+
+## 2. Brique 2 — le `ModbusDataStore` (source de vérité d'Arch A)
+
+### À quoi sert cette pièce
+
+Entre le **thread serveur** (qui parle Modbus au M580) et le **thread physique** (qui
+calcule la cinématique), il faut un point de rendez-vous neutre pour les mots d'échange.
+C'est le datastore : deux tableaux `ushort[]` (zone `cmd` = PLC→sim, zone `ret` = sim→PLC)
+protégés par un verrou. En Arch A, **il est la source de vérité** ; le buffer interne de
+FluentModbus n'en est qu'une recopie temporaire, rafraîchie une fois par tick.
+
+```
+        thread serveur (FluentModbus)                 thread physique (simulation)
+        ─────────────────────────────                 ────────────────────────────
+        sert FC3/FC16 sur SON buffer        début tick, sous server.Lock :
+                                              WriteCommandsFromWire(cmdSlice)  [pull]
+                                            ── puis, hors server.Lock : ──
+                                              cmd = SnapshotCommands()
+                                              …cinématique → ushort[] ret…
+                                              PublishReturns(ret)
+                                            fin tick, sous server.Lock :
+                                              CopyReturnsToWire(retSlice)      [push]
+```
+
+### Le principe directeur : un **transport de mots bruts**, rien d'autre
+
+Le choix le plus structurant est ce que le datastore **ne fait pas**. Il ne connaît ni les
+bits (`cmd_run`, `S11`…), ni le heartbeat, ni la moindre règle machine. Il stocke et copie
+des mots 16 bits, point. Le décodage bit↔signal reste au `PivotModel`
+(`pivot.GetSignal("KM1","cmd_run").ReadBit(cmd[wordRel])`), et le heartbeat est reconstruit
+par la simulation dans son `ushort[] ret` avant publication.
+
+*Pourquoi ce partage ?* Un objet sans sémantique métier ni horloge est **générique**
+(réutilisable si le mapping change) et **trivialement testable** (aucun mock, aucune
+notion de temps). C'est la traduction directe de « simplicité d'abord » : le datastore
+n'a qu'une responsabilité, être un tampon cohérent.
+
+### Les décisions de design et leur justification
+
+| Réf | Décision | Pourquoi (et alternative écartée) |
+|---|---|---|
+| **D-a** | Le datastore détient une référence au `PivotModel` | Il en tire `size_words` → **aucune taille en dur**. *Écarté* : passer les tailles à la main = duplication du contrat, risque de désynchronisation avec le pivot. |
+| **D-b** | Tailles des tableaux = `size_words` des zones (cmd=1, ret=2) | Le pivot est le contrat central : les tailles en découlent, jamais l'inverse. |
+| **D-c** | Le heartbeat **n'est pas** incrémenté ici | Le datastore reste un transport sans horloge. L'incrément appartient à la boucle de sim (brique 4), qui possède le tick. |
+| **D-d** | Verrou interne conservé **même si** un seul thread y accède en Arch A | *Belt & suspenders* : le pattern imposé est `ushort[]` + verrou, et cela ouvre la porte à une lecture concurrente future (IHM debug) sans re-toucher la classe. Coût nul. |
+| **D-e** | Grain snapshot/publish = **la zone entière** (copie `ushort[]`), pas signal par signal | Garantit la **cohérence intra-scan** : le PLC voit un jeu de retours figé par tick, jamais un état à moitié calculé. Se teste en une assertion. |
+
+### Les trois questions ouvertes de l'amorce, tranchées
+
+1. **`SnapshotCommands()` rend un `ushort[]` brut**, pas un struct décodé (`bool Run,
+   Extend1…`). Le brut garde le datastore agnostique de la sémantique machine ; c'est la
+   sim qui décode via les `Signal` du pivot. Un struct aurait couplé le tampon à *cette*
+   machine précise.
+2. **Le pont serveur prend des `Span<ushort>`** (`ReadOnlySpan` en pull, `Span` en push),
+   pas des `ushort[]`. Deux gains : **zéro allocation** et **alignement exact** sur l'API
+   buffer de FluentModbus (`GetHoldingRegisters` renvoie justement un `Span`). La brique 3
+   pourra donc faire `store.WriteCommandsFromWire(buffer.Slice(base, size))` sans copie
+   intermédiaire.
+3. **Pas d'accès direct au mot heartbeat.** La sim reconstruit tout le `ushort[] ret` à
+   chaque tick puis `PublishReturns`. Cohérent avec D-e (grain « zone entière ») et garde
+   l'API minimale.
+
+### Deux subtilités qui évitent des bugs
+
+- **Snapshot = *copie*, pas la référence interne.** `SnapshotCommands()` renvoie
+  `_cmd.Clone()`. Sans cela, la simulation muterait l'état interne du datastore en
+  travaillant sur « son » tableau — fuite d'abstraction classique. Un test le verrouille :
+  muter le tableau rendu ne change pas le store.
+- **`PublishReturns` *recopie* le contenu** (`Array.Copy`) au lieu de garder la référence
+  du tableau fourni. Sinon, la sim qui réutiliserait son buffer `ret` d'un tick à l'autre
+  corromprait l'état publié. Test dédié : muter le tableau source après publication
+  n'altère pas le store.
+
+### Où s'arrête le datastore (frontière avec la brique 3)
+
+Le datastore **ignore les adresses absolues** (%MW100/%MW200). Le découpage du buffer
+FluentModbus par base de zone (`buffer.Slice(base, size)`) est l'affaire du **serveur**
+(brique 3), qui connaît, lui, le buffer. Le datastore reçoit donc toujours un span **déjà
+dimensionné à la zone**, et se contente d'en **vérifier la longueur** — code défensif :
+toute longueur invalide (`PublishReturns`, `WriteCommandsFromWire`, `CopyReturnsToWire`)
+lève une `ArgumentException` explicite plutôt qu'une copie partielle silencieuse.
+
+*Sur le verrouillage* : aucun risque d'interblocage. En Arch A, le seul thread physique
+prend `server.Lock` (externe) **puis** le verrou du datastore (interne) sur le pont, et ce
+verrou interne n'est jamais pris dans l'autre ordre ailleurs. Il n'existe donc pas de cycle
+possible.
+
+**État** : `ModbusDataStore.cs` + `ModbusDataStoreTests.cs` livrés, **28 verts** au total
+(`dotnet test`, dont 11 pour le datastore). Prochaine pièce : **brique 3**, le serveur
+FluentModbus branché sur ce datastore (pull/push sous `server.Lock`), validé au testbench.

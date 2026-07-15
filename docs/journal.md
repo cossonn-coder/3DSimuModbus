@@ -97,3 +97,34 @@ Arch A) validée au testbench Python.
 `docs/sprints/` (reprise à froid après `/clear`). Amorce brique 2 rédigée :
 `docs/sprints/sprint_01_brique_02_datastore.md` (contrat d'API, 5 décisions pré-tranchées,
 3 questions ouvertes, DoD).
+
+---
+
+## 2026-07-15 — Brique 2 close : `ModbusDataStore` (source de vérité d'Arch A)
+
+**Contexte** : après le loader (brique 1), la pièce centrale d'Arch A — le tampon des mots
+d'échange entre thread serveur et thread physique. Amorce : `sprint_01_brique_02_datastore.md`.
+
+**Archi validée avant code** : contrat de l'amorce confirmé, 3 questions ouvertes tranchées
+selon les recommandations — snapshot `ushort[]` **brut** (pas de struct décodé), pont serveur
+en **`Span<ushort>`** (zéro alloc, aligné sur `GetHoldingRegisters`), **pas** d'accès direct
+au heartbeat (la sim reconstruit tout le `ret` puis publie).
+
+**Fait** : `runtime/core/ModbusDataStore.cs` — objet C# pur (`ushort[]` cmd/ret + verrou),
+zéro dépendance Godot. **Transport de mots bruts** : aucun décodage bit, aucun heartbeat,
+aucune adresse absolue (tailles tirées de `PivotModel.GetZone(...).SizeWords`). API :
+`SnapshotCommands` (copie défensive), `PublishReturns` (remplacement atomique + défensif),
+`WriteCommandsFromWire`/`CopyReturnsToWire` (pont serveur, spans dimensionnés à la zone,
+longueur vérifiée). `runtime/tests/ModbusDataStoreTests.cs` (11 cas).
+
+**Résultat** : **28 verts / 0 échec** (`dotnet test`). Deux propriétés fines verrouillées
+par test : snapshot = *copie* (pas la référence interne) et publish = *recopie du contenu*
+(pas la référence fournie) — évitent deux fuites d'abstraction classiques. Tous les points
+de design justifiés pédagogiquement dans `NOTES_sprint_01.md §2`.
+
+**Décisions** : pas de nouvelle entrée `memory.md` (Arch A et le pattern datastore y étaient
+déjà actés le 2026-07-14) ; les choix de design de la brique sont dans les NOTES et l'amorce
+cochée. Aucune dette nouvelle.
+
+**Suite** : **brique 3** — serveur FluentModbus branché sur ce datastore (pull `cmd` début de
+tick / push `ret` fin de tick, sous `server.Lock`), validé au testbench Python (io_scanner_sim).

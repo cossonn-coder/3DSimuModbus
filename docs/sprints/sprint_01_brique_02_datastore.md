@@ -85,14 +85,15 @@ store.PublishReturns(ret);
 
 ## Definition of Done (brique 2)
 
-- [ ] `ModbusDataStore` dans `runtime/core/`, **aucun `using Godot`**, compile dans `CarrouselCore`.
-- [ ] Tailles de zones dérivées du `PivotModel` (pas de constante en dur).
-- [ ] `SnapshotCommands()` renvoie une **copie** (muter le retour ne modifie pas le store).
-- [ ] `PublishReturns` remplace la zone `ret` de façon atomique ; longueur invalide → exception claire.
-- [ ] `WriteCommandsFromWire`/`CopyReturnsToWire` : round-trip fidèle wire↔store (pull puis push
+- [x] `ModbusDataStore` dans `runtime/core/`, **aucun `using Godot`**, compile dans `CarrouselCore`.
+- [x] Tailles de zones dérivées du `PivotModel` (pas de constante en dur).
+- [x] `SnapshotCommands()` renvoie une **copie** (muter le retour ne modifie pas le store).
+- [x] `PublishReturns` remplace la zone `ret` de façon atomique ; longueur invalide → exception claire.
+- [x] `WriteCommandsFromWire`/`CopyReturnsToWire` : round-trip fidèle wire↔store (pull puis push
       redonne les mêmes mots).
-- [ ] Tests xUnit dans `runtime/tests/` (`ModbusDataStoreTests.cs`) : `dotnet test` **vert**.
-- [ ] Journal / backlog / (dettes si besoin) à jour ; ce brief coché.
+- [x] Tests xUnit dans `runtime/tests/` (`ModbusDataStoreTests.cs`) : `dotnet test` **vert** (28 au total).
+- [x] Journal / backlog / (dettes si besoin) à jour ; ce brief coché. Points de design
+      justifiés dans `docs/notes/NOTES_sprint_01.md` §2.
 
 ## Ordre de travail
 
