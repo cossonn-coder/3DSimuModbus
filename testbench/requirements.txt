@@ -1,5 +1,6 @@
 # Testbench Python — simulateur d'I/O Scanner (joue le M580) + tests
 # Nico travaille en SSH mobile : dependances minimales, pas d'extra lourd.
 
-pymodbus>=3.6,<4.0   # client Modbus TCP (FC3 lecture retours / FC16 ecriture commandes)
+pymodbus>=3.7,<4.0   # client Modbus TCP (FC3 lecture retours / FC16 ecriture commandes)
+                     # NB : kwarg device_id= (le slave= des versions <3.7 a ete supprime en 3.14)
 pytest>=8.0          # suite de tests, style HIL (fixtures + assertions explicites)

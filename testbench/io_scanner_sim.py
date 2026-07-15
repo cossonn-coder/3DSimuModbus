@@ -24,7 +24,7 @@ from pivot_loader import Mapping, Signal, load_pivot
 
 
 def _read_zone(client, unit: int, zone) -> list[int]:
-    rr = client.read_holding_registers(zone.base, count=zone.size_words, slave=unit)
+    rr = client.read_holding_registers(zone.base, count=zone.size_words, device_id=unit)
     if rr.isError():
         raise SystemExit(f"FC3 sur zone {zone.name} en erreur : {rr}")
     return list(rr.registers)
@@ -45,7 +45,7 @@ def _apply_commands(client, unit: int, mapping: Mapping, forces: dict[str, bool]
         rel = sig.abs_word - cmd.base
         if value and sig.is_tor:
             words[rel] |= 1 << sig.bit
-    wr = client.write_registers(cmd.base, words, slave=unit)
+    wr = client.write_registers(cmd.base, words, device_id=unit)
     if wr.isError():
         raise SystemExit(f"FC16 sur zone cmd en erreur : {wr}")
 

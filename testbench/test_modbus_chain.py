@@ -18,7 +18,7 @@ from pivot_loader import Mapping, Signal
 
 
 def _read_word(client, unit: int, abs_word: int) -> int:
-    rr = client.read_holding_registers(abs_word, count=1, slave=unit)
+    rr = client.read_holding_registers(abs_word, count=1, device_id=unit)
     if rr.isError():
         raise AssertionError(f"FC3 %MW{abs_word} en erreur : {rr}")
     return rr.registers[0]
@@ -29,7 +29,7 @@ def _read_bit(client, unit: int, sig: Signal) -> bool:
 
 
 def _write_word(client, unit: int, abs_word: int, value: int) -> None:
-    wr = client.write_registers(abs_word, [value & 0xFFFF], slave=unit)
+    wr = client.write_registers(abs_word, [value & 0xFFFF], device_id=unit)
     if wr.isError():
         raise AssertionError(f"FC16 %MW{abs_word} en erreur : {wr}")
 

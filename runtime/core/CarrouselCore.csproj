@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Class library de LOGIQUE PURE (loader pivot + datastore Modbus). Decision D-006 (b) :
+       extraite de l'assembly Godot pour etre testable hors moteur (xUnit), en symetrie du
+       pytest cote Python. AUCUNE dependance tierce ni Godot : seule la BCL .NET est
+       utilisee (System.Text.Json fait partie du framework partage net8.0). -->
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>CarrouselCore</RootNamespace>
+    <AssemblyName>CarrouselCore</AssemblyName>
+  </PropertyGroup>
+
+</Project>

@@ -22,6 +22,7 @@ fait foi et la contradiction doit être signalée.
 | 2026-07 | Zones à base configurable : `cmd` base %MW100 (1 mot), `ret` base %MW200 (2 mots). Adresses relatives `{zone, word, bit}` dans le JSON. |
 | 2026-07 | Heartbeat : mot 0 zone `ret`, +1 toutes les 100 ms, rollover 16 bits libre. |
 | 2026-07 | Tout en 16 bits en V1 (pas de sujet d'ordre de mots). TOR packés 16/mot. |
+| 2026-07-14 | **FluentModbus 5.3.2 figé** (POC D-001 concluant). Trois règles imposées à `ModbusServer` : (1) déclarer l'unité du pivot via `server.AddUnit(unit_id)` — le défaut ne sert que l'unit 0 et ferme la connexion sinon ; (2) accéder au buffer par `server.GetHoldingRegisters(unit_id)` **toujours via `Get/SetBigEndian<T>`** (buffer natif little-endian ≠ fil Modbus big-endian, sinon octets inversés côté M580/pymodbus) ; (3) l'accès buffer se fait dans une méthode **synchrone** (un `Span<short>` ne peut pas vivre dans du code `async`). Latence commande→retour mesurée = **1 tick** (conforme Arch A). |
 
 ## Machine et simulation
 
@@ -38,6 +39,7 @@ fait foi et la contradiction doit être signalée.
 | Date | Décision |
 |---|---|
 | 2026-07 | Datastore = objet C# pur (`ushort[]` + verrou), zéro dépendance Godot. Thread serveur Modbus ne touche jamais le scene tree. Simulation : snapshot des commandes en début de tick physique, publication des retours en fin de tick. |
+| 2026-07-14 | **Arch A actée** (sprint 1, `/conception`) : le `ModbusDataStore` est la **source de vérité** ; le buffer interne de FluentModbus est un détail **privé** de `ModbusServer`, recopié ↔ datastore **à chaque tick physique** sous `server.Lock` (pull `cmd` en début de tick, push `ret` en fin). Le thread serveur ne touche **ni** le scene tree **ni** le datastore : seul le thread physique accède au datastore. Datastore et FluentModbus restent découplés (repli mini-serveur D-001 = une seule classe à réécrire). À réviser **uniquement** si le POC D-001 révèle un vrai problème de latence/contention. |
 
 ## Méthode de travail
 

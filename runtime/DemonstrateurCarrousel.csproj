@@ -9,8 +9,20 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- Serveur Modbus TCP. Version a figer apres le POC D-001 (comportement
-         thread-safe reel a valider). -->
-    <PackageReference Include="FluentModbus" Version="5.*" />
+    <!-- Serveur Modbus TCP. Version FIGEE apres le POC D-001 (2026-07-14) : 5.3.2
+         validee (unit via AddUnit, buffer big-endian via Get/SetBigEndian, acces
+         synchrone sous server.Lock). Voir docs/notes/NOTES_sprint_01.md. -->
+    <PackageReference Include="FluentModbus" Version="5.3.2" />
+  </ItemGroup>
+
+  <!-- Sous-projets .NET autonomes sous runtime/ (POC jetable, class library core,
+       tests xUnit) : ils ont leur PROPRE .csproj. On les retire du glob du SDK Godot,
+       sinon l'assembly Godot tenterait de les compiler (top-level/points d'entree
+       multiples => build casse). Le lien vers core se fera via un ProjectReference
+       explicite quand la brique 1 sera livree. -->
+  <ItemGroup>
+    <Compile Remove="poc/**/*.cs" />
+    <Compile Remove="core/**/*.cs" />
+    <Compile Remove="tests/**/*.cs" />
   </ItemGroup>
 </Project>

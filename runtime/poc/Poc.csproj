@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- POC D-001 JETABLE : projet console autonome (pas Godot) pour valider le
+       comportement thread-safe reel de FluentModbus avant de figer l'API des 3 briques.
+       Sera supprime une fois D-001 documente dans NOTES_sprint_01.md. -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <!-- Importe implicitement System, System.Threading(.Tasks), System.Net, etc. -->
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>Poc</RootNamespace>
+    <!-- Isole du build Godot : ce dossier n'est pas compile par l'assembly principal. -->
+    <AssemblyName>PocModbus</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Volontairement flottant (5.*) : le POC sert justement a choisir la version
+         exacte a epingler ensuite dans DemonstrateurCarrousel.csproj. -->
+    <PackageReference Include="FluentModbus" Version="5.*" />
+  </ItemGroup>
+
+</Project>

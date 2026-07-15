@@ -97,7 +97,8 @@ blocage. Documenter dans `NOTES_sprint_01.md`.
 
 ## Definition of Done
 
-- [ ] `machine_carrousel.json` charge sans erreur ; un JSON malforme echoue proprement.
+- [x] `machine_carrousel.json` charge sans erreur ; un JSON malforme echoue proprement
+      (Python **et** C# : `PivotModel` + xUnit `runtime/tests`, 17 verts).
 - [x] Testbench : loader pivot + tests unitaires du contrat (17 verts, 4 skip).
 - [ ] `cmd_run=1` (FC16) → heartbeat progresse et `KM1_AUX` passe a 1 apres
       `feedback_delay_ms` ; `cmd_run=0` → `KM1_AUX` retombe.
