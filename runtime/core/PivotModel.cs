@@ -84,13 +84,22 @@ public sealed class PivotModel
     public IReadOnlyList<Signal> AllSignals { get; }
     public Signal Heartbeat { get; }
 
+    // Parametres reseau du serveur Modbus, tires du pivot (jamais en dur cote code) :
+    //   - Port : port d'ecoute TCP (502 dans le pivot V1) ;
+    //   - UnitId : identifiant d'unite Modbus que le M580 scrutera (1 dans le pivot V1).
+    // Consommes par ModbusServer (brique 3) : server.AddUnit(UnitId) + ecoute sur Port.
+    public int Port { get; }
+    public byte UnitId { get; }
+
     private PivotModel(
         IReadOnlyDictionary<string, ZoneLayout> zones,
         IReadOnlyDictionary<string, Component> components,
         IReadOnlyDictionary<string, Component> byTag,
         IReadOnlyDictionary<string, Signal> signalsByTag,
         IReadOnlyList<Signal> allSignals,
-        Signal heartbeat)
+        Signal heartbeat,
+        int port,
+        byte unitId)
     {
         Zones = zones;
         Components = components;
@@ -98,6 +107,8 @@ public sealed class PivotModel
         SignalsByTag = signalsByTag;
         AllSignals = allSignals;
         Heartbeat = heartbeat;
+        Port = port;
+        UnitId = unitId;
     }
 
     // --- Accesseurs (resolvent depuis le pivot ; jamais d'adresse absolue en dur ailleurs) ---
@@ -157,6 +168,19 @@ public sealed class PivotModel
 
         var zones = ResolveZones(zonesEl, baseOverrides);
 
+        // Port et unit_id : parametres reseau REQUIS. Le pivot est le contrat ; ces valeurs
+        // ne se devinent jamais en silence (on pilote un automate reel — un mauvais port ou
+        // un mauvais unit_id = connexion fermee cote M580, panne silencieuse). Absence ou
+        // valeur hors plage => echec clair, au meme titre que les autres validations pivot.
+        if (!TryGetInt(modbus, "port", out int port))
+            throw new PivotException("Section 'modbus.port' absente ou invalide");
+        if (port < 1 || port > 65535)
+            throw new PivotException($"modbus.port hors plage [1..65535] : {port}");
+        if (!TryGetInt(modbus, "unit_id", out int unitId))
+            throw new PivotException("Section 'modbus.unit_id' absente ou invalide");
+        if (unitId < 1 || unitId > 247)   // 0 = broadcast, 248..255 reserves : hors usage serveur
+            throw new PivotException($"modbus.unit_id hors plage [1..247] : {unitId}");
+
         // Anti-collision : un bit TOR est unique ; un mot compteur reserve le mot entier.
         var occupiedBits = new HashSet<(string Zone, int Word, int Bit)>();
         var occupiedWords = new HashSet<(string Zone, int Word)>();
@@ -209,7 +233,7 @@ public sealed class PivotModel
         if (allSignals.Count <= 1)
             throw new PivotException("Aucun signal de composant resolu depuis le pivot");
 
-        return new PivotModel(zones, components, byTag, signalsByTag, allSignals, heartbeat);
+        return new PivotModel(zones, components, byTag, signalsByTag, allSignals, heartbeat, port, (byte)unitId);
     }
 
     private static JsonDocument ParseOrThrow(string text, string path)

@@ -52,6 +52,14 @@ public class PivotModelTests
     }
 
     [Fact]
+    public void Port_et_unit_id_du_pivot()
+    {
+        // Parametres reseau tires du pivot (contrat), jamais devines.
+        Assert.Equal(502, Mapping.Port);
+        Assert.Equal((byte)1, Mapping.UnitId);
+    }
+
+    [Fact]
     public void Heartbeat_mot0_de_ret()
     {
         var hb = Mapping.Heartbeat;
@@ -140,6 +148,8 @@ public class PivotModelTests
     private const string MinimalPivot = """
     {
       "modbus": {
+        "port": 502,
+        "unit_id": 1,
         "zones": {
           "cmd": { "base_mw": 100, "size_words": 1 },
           "ret": { "base_mw": 200, "size_words": 2 }
@@ -199,6 +209,23 @@ public class PivotModelTests
     }
 
     [Fact]
+    public void Port_absent_echoue()
+    {
+        // Retire "port": 502 du pivot minimal : le parse strict doit lever clairement.
+        string json = MinimalPivot.Replace("\"port\": 502,", "");
+        var ex = Assert.Throws<PivotException>(() => PivotModel.Load(WriteTemp(json)));
+        Assert.Contains("port", ex.Message);
+    }
+
+    [Fact]
+    public void Unit_id_absent_echoue()
+    {
+        string json = MinimalPivot.Replace("\"unit_id\": 1,", "");
+        var ex = Assert.Throws<PivotException>(() => PivotModel.Load(WriteTemp(json)));
+        Assert.Contains("unit_id", ex.Message);
+    }
+
+    [Fact]
     public void Heartbeat_absent_echoue()
     {
         // Meme pivot minimal mais sans la section heartbeat (litteral dedie : plus robuste
@@ -206,6 +233,8 @@ public class PivotModelTests
         const string noHeartbeat = """
         {
           "modbus": {
+            "port": 502,
+            "unit_id": 1,
             "zones": {
               "cmd": { "base_mw": 100, "size_words": 1 },
               "ret": { "base_mw": 200, "size_words": 2 }

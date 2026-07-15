@@ -24,5 +24,7 @@
     <Compile Remove="poc/**/*.cs" />
     <Compile Remove="core/**/*.cs" />
     <Compile Remove="tests/**/*.cs" />
+    <Compile Remove="server/**/*.cs" />
+    <Compile Remove="server.tests/**/*.cs" />
   </ItemGroup>
 </Project>

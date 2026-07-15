@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Class library du SERVEUR Modbus (brique 3). Decision d'archi (Q4, sprint 1) :
+       CarrouselCore reste PUR (aucune dependance tierce, cf. D-006) ; tout le code qui
+       depend de FluentModbus est isole ICI. Ce projet reference :
+         - CarrouselCore (PivotModel + ModbusDataStore, la source de verite Arch A) ;
+         - FluentModbus 5.3.2 (version FIGEE au POC D-001, identique a l'assembly Godot).
+       Il est ainsi testable hors Godot (dotnet test in-process, validation 2a), et l'assembly
+       Godot n'aura qu'a le referencer (brique 4/5) au lieu de porter la logique serveur. -->
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>CarrouselServer</RootNamespace>
+    <AssemblyName>CarrouselServer</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\core\CarrouselCore.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Version FIGEE 5.3.2 (POC D-001, 2026-07-14) : AddUnit(unit_id), acces buffer
+         synchrone via Get/SetBigEndian sous server.Lock. Doit rester alignee sur
+         DemonstrateurCarrousel.csproj (meme version pour eviter tout conflit au runtime Godot). -->
+    <PackageReference Include="FluentModbus" Version="5.3.2" />
+  </ItemGroup>
+
+</Project>

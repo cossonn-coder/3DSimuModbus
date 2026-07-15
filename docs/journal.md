@@ -128,3 +128,42 @@ cochée. Aucune dette nouvelle.
 
 **Suite** : **brique 3** — serveur FluentModbus branché sur ce datastore (pull `cmd` début de
 tick / push `ret` fin de tick, sous `server.Lock`), validé au testbench Python (io_scanner_sim).
+
+---
+
+## 2026-07-15 — Brique 3 close : `ModbusServer` (pont FluentModbus ↔ datastore)
+
+**Contexte** : dernière pièce du transport Modbus. Amorce : `sprint_01_brique_03_serveur.md`.
+
+**Archi validée avant code** — deux questions structurantes tranchées :
+- **Assembly (Q4)** : `ModbusServer` va dans un **projet dédié** `runtime/server/CarrouselServer.csproj`
+  (classlib → `CarrouselCore` + FluentModbus 5.3.2). `CarrouselCore` reste **pur** (D-006) ;
+  option A (FluentModbus dans le core) et B (dans l'assembly Godot, non testable) écartées.
+- **Validation (Q2)** : test d'intégration **in-process** (reco 2a) — vrai serveur sur loopback
+  + vrai `ModbusTcpClient` FluentModbus dans le même `dotnet test`. La full-chain Python (4 skips)
+  reste pour la brique 4.
+
+**Fait** :
+- `PivotModel` expose `Port`/`UnitId`, **parse strict** (échec clair si absent) — décision **D-f**
+  demandée par l'utilisateur (pas de repli 502/1 : le pivot est le contrat, ces valeurs réseau ne
+  se devinent pas). Les 2 fixtures de test minimales reçoivent `port`/`unit_id` explicites +
+  2 tests de robustesse (champ absent).
+- `runtime/server/ModbusServer.cs` : les 3 contraintes POC ré-imposées (`AddUnit(unit_id)`, accès
+  buffer **synchrone**, `Get/SetBigEndian<ushort>` **registre par registre**). Port/unit_id/bases
+  résolus du pivot. Serveur **passif** : `PullCommands`/`PushReturns` séparés, appelés par le thread
+  appelant sous `server.Lock`. Bind défaut `IPAddress.Any` (M580 distant).
+- `runtime/server.tests/ModbusServerTests.cs` (3 cas : transport FC16→pull, publish→push→FC3,
+  endianness big-endian explicite via client little/big). Port **éphémère libre** en test (pas 502).
+- `DemonstrateurCarrousel.csproj` : `server/` et `server.tests/` retirés du glob SDK Godot.
+
+**Résultat** : **34 verts / 0 échec** (`dotnet test` : 31 core + 3 intégration serveur).
+Endianness big-endian du fil prouvée in-process (client little-endian lit `0x3412` là où le
+serveur a écrit `0x1234`). Points de design justifiés dans `NOTES_sprint_01.md §3`.
+
+**Décisions** : `memory.md` inchangé (Arch A + contraintes FluentModbus déjà actées le
+2026-07-14) ; **D-f** (parse strict port/unit_id) consignée aux NOTES §3 et à l'amorce cochée.
+Aucune dette nouvelle.
+
+**Suite** : **brique 4** — boucle de simulation (cinématique scriptée déterministe + heartbeat),
+qui remplira le `ret` et débloquera la validation full-chain FC3/FC16 du testbench Python.
+Amorce : `sprint_01_brique_04_simulation.md`.

@@ -119,17 +119,19 @@ public void PushReturns()
    appelés dans `_PhysicsProcess`. **Hors périmètre brique 3** (câblage Godot = brique 4/5) — juste
    s'assurer que l'API `Start/PullCommands/PushReturns/Dispose` s'y prête.
 
-## Definition of Done (brique 3)
+## Definition of Done (brique 3) — ✅ close 2026-07-15
 
-- [ ] `ModbusServer` dans `runtime/core/` (ou `runtime/` si dépendance FluentModbus incompatible avec
-      `CarrouselCore` — **à vérifier** : `CarrouselCore` doit-il référencer FluentModbus, ou la brique
-      serveur vit-elle dans l'assembly Godot ? cf. note ci-dessous).
-- [ ] `AddUnit(unit_id)`, accès buffer **synchrone**, `Get/SetBigEndian<ushort>` — les 3 contraintes POC.
-- [ ] Bases/port/unit_id résolus depuis le pivot (aucune constante en dur).
-- [ ] `PullCommands`/`PushReturns` sous `server.Lock` ; round-trip client→store et store→client fidèle.
-- [ ] Validation retenue (reco 2a) verte : test d'intégration transport + endianness.
-- [ ] Points de design justifiés dans `NOTES_sprint_01.md §3`.
-- [ ] Journal / backlog / (dettes si besoin) à jour ; ce brief coché.
+- [x] `ModbusServer` dans un **projet dédié** `runtime/server/CarrouselServer.csproj` (option C :
+      classlib → `CarrouselCore` + FluentModbus 5.3.2 ; `CarrouselCore` reste pur). Décision d'archi
+      tranchée (Q4).
+- [x] `AddUnit(unit_id)`, accès buffer **synchrone**, `Get/SetBigEndian<ushort>` — les 3 contraintes POC.
+- [x] Bases/port/unit_id résolus depuis le pivot (aucune constante en dur ; `PivotModel.Port`/`UnitId`
+      ajoutés, parse **strict** — décision D-f).
+- [x] `PullCommands`/`PushReturns` sous `server.Lock` ; round-trip client→store et store→client fidèle.
+- [x] Validation retenue (reco 2a) verte : test d'intégration transport + endianness (**3 cas**,
+      port éphémère loopback). **34 verts** au total (`dotnet test`).
+- [x] Points de design justifiés dans `NOTES_sprint_01.md §3`.
+- [x] Journal à jour ; ce brief coché ; aucune dette nouvelle.
 
 > **Note d'architecture à trancher tôt** : `CarrouselCore` est aujourd'hui sans dépendance externe
 > (pur, testable). FluentModbus est une dépendance NuGet lourde. **Décision à prendre à l'archi** :
