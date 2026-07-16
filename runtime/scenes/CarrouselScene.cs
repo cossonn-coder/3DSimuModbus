@@ -108,6 +108,40 @@ public partial class CarrouselScene : Node3D
     private Vector3 _palletCenter;
     private float _palletY;
 
+    // --- Chaine de commande par element (S3.3) : etiquettes 3D + coloration d'etat ------------
+    // Etiquettes « cmd -> physique -> ret » ancrees sur chaque element (helper de glue pure).
+    // Nourries a BASSE cadence (~6 Hz) par _Process, jamais a 60 Hz : le texte ne doit pas
+    // scintiller. Le decodage pivot (adresses %MW) vit entierement dans ce helper — pas ici.
+    private CommandChainLabels _labels = null!;
+    private double _labelAccumulator;
+    private const double LabelRefreshPeriodS = 0.15;   // ~6-7 Hz : lisible, sans scintillement
+
+    // Ancres (noeuds 3D) au-dessus desquels poser les etiquettes, capturees au build pour ne
+    // faire AUCUN GetNode par rafraichissement. Anneau du convoyeur, verins, fenetres capteurs.
+    private Node3D _ringNode = null!;
+    private Node3D _cyl1Node = null!;
+    private Node3D _cyl2Node = null!;
+    private MeshInstance3D _sensor1Node = null!;
+    private MeshInstance3D _sensor2Node = null!;
+
+    // Materiaux a colorer selon l'etat (references reutilisees, on ne modifie que leur AlbedoColor,
+    // cf. amorce S3.3). Tige teintee par degrade selon la course ; anneau teinte quand KM1_AUX=1 ;
+    // fenetre capteur allumee quand Bi=1. Capturees au build (l'anneau/les fenetres ne l'etaient pas).
+    private StandardMaterial3D _rodMat1 = null!;
+    private StandardMaterial3D _rodMat2 = null!;
+    private StandardMaterial3D _ringMat = null!;
+    private StandardMaterial3D _sensorMat1 = null!;
+    private StandardMaterial3D _sensorMat2 = null!;
+
+    // Couleurs repos / actif (mobilier de rendu hors pivot, comme la camera). Repos = couleurs
+    // deja posees par les builders ; actif = variante saturee qui « allume » l'element sous etat.
+    private static readonly Color RodRest = new(0.78f, 0.78f, 0.82f);
+    private static readonly Color RodActive = new(0.95f, 0.75f, 0.20f);   // ambre : tige qui sort
+    private static readonly Color RingRest = new(0.55f, 0.55f, 0.58f);
+    private static readonly Color RingActive = new(0.30f, 0.72f, 0.38f);  // vert : convoyeur en marche
+    private static readonly Color SensorRest = new(0.20f, 0.60f, 1.00f, 0.35f);
+    private static readonly Color SensorActive = new(0.30f, 1.00f, 0.45f, 0.70f);   // vert allume : palette presente
+
     public override void _Ready()
     {
         // Chargement defensif : PivotModel.Load leve PivotException (message clair) si le contrat
@@ -194,6 +228,13 @@ public partial class CarrouselScene : Node3D
         hud.Configure(_server, _sim, pivot.Port);
         if (_serverFailed)
             hud.ShowBindFailure(_serverFailureMessage);
+
+        // --- Chaine de commande par element (S3.3) : etiquettes 3D « cmd -> physique -> ret » ----
+        // Construites APRES la geometrie (les ancres/materiaux sont capturees) et apres le pivot.
+        // Lecture seule : le helper resout les adresses %MW du pivot et pose un Label3D billboard
+        // sur chaque element ; _Process les nourrit ensuite a basse cadence (avec la coloration).
+        _labels = new CommandChainLabels();
+        _labels.Build(pivot, _ringNode, _cyl1Node, _cyl2Node, _sensor1Node, _sensor2Node);
     }
 
     /// <summary>
@@ -227,6 +268,40 @@ public partial class CarrouselScene : Node3D
 
         // Reflet visuel de l'etat simule (tiges/palettes) : stub en S2.1, corps livre en S2.2.
         ApplyToScene();
+    }
+
+    /// <summary>
+    /// Rafraichissement VISUEL a BASSE cadence (~6 Hz) de la chaine de commande par element (S3.3) :
+    /// texte des etiquettes + coloration d'etat. Distinct de _PhysicsProcess (60 Hz, deterministe) :
+    /// le texte et les couleurs n'ont pas besoin du 60 Hz et scintilleraient a ce rythme. Lecture
+    /// seule stricte (frontiere Arch A) : on ne lit que des COPIES verrouillees (SnapshotCommands /
+    /// SnapshotReturns) et l'etat deja publie par la simulation ; aucune ecriture cmd, aucun acces
+    /// au datastore interne. On rafraichit meme sur echec de bind : les etiquettes montrent alors un
+    /// etat au repos (cmd=0), coherent avec le bandeau rouge du HealthHud (la maquette est figee).
+    /// </summary>
+    public override void _Process(double delta)
+    {
+        _labelAccumulator += delta;
+        if (_labelAccumulator < LabelRefreshPeriodS)
+            return;
+        _labelAccumulator = 0;
+
+        // Snapshots atomiques des deux zones (thread principal) : la meme photo alimente le texte
+        // ET la coloration, pour un affichage coherent d'un rafraichissement a l'autre.
+        ushort[] cmd = _store.SnapshotCommands();
+        ushort[] ret = _store.SnapshotReturns();
+        _labels.Update(cmd, ret, _sim);
+
+        // Coloration d'etat (reutilisation des materiaux deja poses, on ne touche que AlbedoColor) :
+        //   - tige : degrade repos->actif selon la course reelle (0..1) du verin ;
+        //   - anneau : teinte « en marche » quand le contact KM1_AUX est ferme ;
+        //   - fenetre capteur : « allumee » quand son bit de presence Bi vaut 1.
+        // Les booleens KM1_AUX / B1 / B2 sont deja decodes par _labels (decodage pivot centralise).
+        _rodMat1.AlbedoColor = RodRest.Lerp(RodActive, (float)_sim.Cylinder1.Position);
+        _rodMat2.AlbedoColor = RodRest.Lerp(RodActive, (float)_sim.Cylinder2.Position);
+        _ringMat.AlbedoColor = _labels.Km1Aux ? RingActive : RingRest;
+        _sensorMat1.AlbedoColor = _labels.B1Present ? SensorActive : SensorRest;
+        _sensorMat2.AlbedoColor = _labels.B2Present ? SensorActive : SensorRest;
     }
 
     /// <summary>
@@ -335,7 +410,7 @@ public partial class CarrouselScene : Node3D
             Radius = outerR,
             Height = height,
             Sides = 64,
-            Material = SolidMat(new Color(0.55f, 0.55f, 0.58f)),
+            Material = SolidMat(RingRest),
             Operation = CsgShape3D.OperationEnum.Union,
         };
         var inner = new CsgCylinder3D
@@ -348,6 +423,11 @@ public partial class CarrouselScene : Node3D
         ring.AddChild(outer);
         ring.AddChild(inner);
         AddChild(ring);
+
+        // S3.3 : memoriser l'anneau (ancre de l'etiquette KM1) et son materiau (a teinter quand
+        // le contact KM1_AUX est ferme). On reutilise le materiau deja pose, on ne recree rien.
+        _ringNode = ring;
+        _ringMat = (StandardMaterial3D)outer.Material;
 
         return center.Y + height / 2f;
     }
@@ -389,8 +469,18 @@ public partial class CarrouselScene : Node3D
         // S2.2 : memoriser la tige et sa course pour l'animer chaque frame (zero GetNode a l'execution).
         // Routage explicite par id pivot : on garantit que _rod1/_rod2 correspondent bien a
         // Cylinder1/Cylinder2 de la simulation, independamment de l'ordre d'iteration du dictionnaire.
-        if (cyl.Id == "cylinder_1") { _rod1 = rod; _restY1 = rod.Position.Y; _stroke1 = stroke; }
-        else if (cyl.Id == "cylinder_2") { _rod2 = rod; _restY2 = rod.Position.Y; _stroke2 = stroke; }
+        // S3.3 (additif) : on capture aussi le noeud du verin (ancre de l'etiquette) et le materiau
+        // de la tige (a teinter par degrade selon la course) — memes indices, meme routage par id.
+        if (cyl.Id == "cylinder_1")
+        {
+            _rod1 = rod; _restY1 = rod.Position.Y; _stroke1 = stroke;
+            _cyl1Node = node; _rodMat1 = (StandardMaterial3D)rod.MaterialOverride;
+        }
+        else if (cyl.Id == "cylinder_2")
+        {
+            _rod2 = rod; _restY2 = rod.Position.Y; _stroke2 = stroke;
+            _cyl2Node = node; _rodMat2 = (StandardMaterial3D)rod.MaterialOverride;
+        }
     }
 
     /// <summary>Palette : boite posee sur l'anneau, orientee sur le rayon (alignement cosmetique).</summary>
@@ -431,9 +521,20 @@ public partial class CarrouselScene : Node3D
             Mesh = new BoxMesh { Size = new Vector3(ringWidth, SensorHeight, chord) },
             Position = OnCircle(angle, radius, center, y),
             RotationDegrees = new Vector3(0, (float)angle, 0),
-            MaterialOverride = GlassMat(new Color(0.20f, 0.60f, 1.0f, 0.35f)),
+            MaterialOverride = GlassMat(SensorRest),
         };
         AddChild(window);
+
+        // S3.3 : capturer le noeud (ancre de l'etiquette Bi) et son materiau (a « allumer » quand
+        // le bit de presence est a 1). Routage par id pivot, comme pour les verins/tiges.
+        if (sensor.Id == "presence_station_1")
+        {
+            _sensor1Node = window; _sensorMat1 = (StandardMaterial3D)window.MaterialOverride;
+        }
+        else if (sensor.Id == "presence_station_2")
+        {
+            _sensor2Node = window; _sensorMat2 = (StandardMaterial3D)window.MaterialOverride;
+        }
     }
 
     // --- Helpers -------------------------------------------------------------------------------

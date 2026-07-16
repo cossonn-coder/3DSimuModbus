@@ -107,15 +107,20 @@ jour**. Suggestion de forme (adapte librement, garde-le simple) :
 
 ## Definition of Done (cochable)
 
-- [ ] Chaque élément (KM1, YV1, YV2, B1, B2) porte une **étiquette 3D** montrant `cmd → physique →
-      ret` avec les **bons %MW** (conformes à l'oracle ci-dessus, mais **lus du pivot**).
-- [ ] **Coloration d'état** cohérente : tige teintée sous commande, fenêtre capteur allumée quand
-      B1/B2=1, anneau teinté quand KM1_AUX=1.
-- [ ] Les valeurs **évoluent en direct** quand le M580 (ou `io_scanner_sim`) pilote les bits.
-- [ ] `demo_sprint_03.ps1` : **pré-vol port** + scénarios guidés, **ASCII pur**, se déroule sans
-      retaper de commandes ; Nico valide la lisibilité de la chaîne à l'œil.
-- [ ] Build Godot **0 erreur** ; `smoke_anim.ps1` + **4 pytest full-chain** **inchangés/verts**.
-- [ ] Aucune écriture `cmd` ; builders (brique 5) et animation (S2.2) **non régressés**.
+- [x] Chaque élément (KM1, YV1, YV2, B1, B2) porte une **étiquette 3D** montrant `cmd → physique →
+      ret` avec les **bons %MW** (conformes à l'oracle ci-dessus, mais **lus du pivot** via
+      `pivot.GetSignal(...)` → `Signal.AbsWord/.Bit` ; zéro adresse en dur).
+- [x] **Coloration d'état** cohérente : tige teintée (dégradé repos→ambre selon la course), fenêtre
+      capteur allumée (vert) quand B1/B2=1, anneau teinté (vert) quand KM1_AUX=1.
+- [x] Les valeurs **évoluent en direct** quand le M580 (ou `io_scanner_sim`) pilote les bits
+      (rafraîchi à ~6 Hz dans `_Process`, décodé des snapshots verrouillés). *Vérif visuelle F5/démo
+      à faire par Nico ; prouvé indirectement par smoke + pytot (chaîne Modbus vivante).*
+- [x] `demo_sprint_03.ps1` : **pré-vol port 502** + 6 scénarios guidés, **ASCII pur** (0 octet
+      >127, parse PS OK), se déroule sans retaper de commandes. *Lisibilité à l'œil = validation Nico.*
+- [x] Build Godot **0 erreur** ; `smoke_anim.ps1` **vert** + **4 pytest full-chain** **verts**
+      (chaîne Modbus inchangée, scène headless sur :502).
+- [x] Aucune écriture `cmd` ; builders (brique 5) et animation (S2.2) **non régressés** (recensement
+      `ring=1 cylinders=2 pallets=3 sensors=2` intact, tige montée + palettes avancées au smoke).
 
 ## Vérif autosuffisante (prouver le vert)
 

@@ -6,6 +6,8 @@
 ## Où on en est
 Conception **close**, sprint **en cours d'exécution**. 3 sous-sprints, amorces rédigées.
 Sprints 1 & 2 clos (démonstrateur 3D animé depuis la sim via Modbus, validé à l'œil).
+**S3.1 + S3.2 + S3.3 tous FAITS** (2026-07-16, non commités) — le sprint 3 est prêt pour clôture
+(`/sprint close 03`) après validation visuelle Nico. Banc **95 verts** de bout en bout.
 
 **Avancement S3.x :**
 - **S3.1 Backend santé — FAIT** (2026-07-16, non commité, en attente orchestrateur). Banc re-figé
@@ -13,7 +15,10 @@ Sprints 1 & 2 clos (démonstrateur 3D animé depuis la sim via Modbus, validé �
 - **S3.2 Santé visible — FAIT** (2026-07-16, non commité, en attente orchestrateur). HUD lecture
   seule (bandeau échec bind + panneau santé). Banc **inchangé (95)**. **D-013 soldée** (visibilité).
   Détails ci-dessous.
-- S3.3 Chaîne par élément + démo — à faire (prochain).
+- **S3.3 Chaîne par élément + démo — FAIT** (2026-07-16, non commité, en attente orchestrateur).
+  Étiquettes 3D `cmd %MW → physique → ret %MW` par élément (KM1/YV1/YV2/B1/B2) décodées du pivot +
+  coloration d'état (tige/anneau/fenêtres) + `demo_sprint_03.ps1`. Banc **inchangé (95)**. Détails
+  ci-dessous.
 
 ### S3.1 — DoD cochée
 - [x] `ModbusServerException` (type dédié) créée — `runtime/server/ModbusServerException.cs`.
@@ -51,6 +56,30 @@ Sprints 1 & 2 clos (démonstrateur 3D animé depuis la sim via Modbus, validé �
   gardé sur échec) + `runtime/scenes/HealthHud.cs` (**neuf**).
 - Design imprévu tranché : `_ExitTree` ne dispose le serveur **que si** le bind a réussi (sur échec,
   FluentModbus n'a jamais démarré ; le pré-vol `TcpListener` a déjà relâché le port dans son finally).
+
+### S3.3 — DoD cochée
+- [x] Étiquette 3D `Label3D` billboard par élément (KM1, YV1, YV2, B1, B2), texte `cmd %MWx.y →
+      physique → ret %MWa.b` **décodé du pivot** (`Signal.AbsWord/.Bit`, jamais d'adresse en dur).
+- [x] Coloration d'état : tige teintée par dégradé (repos→ambre, selon `Position`), anneau vert si
+      `KM1_AUX`=1, fenêtre capteur allumée verte si `Bi`=1. Réutilise les matériaux déjà posés
+      (mut. `AlbedoColor`), refs anneau/fenêtres capturées au build.
+- [x] Rafraîchissement **basse cadence ~6 Hz** (`_Process` + accumulateur, `LabelRefreshPeriodS=0.15`),
+      pas 60 Hz (anti-scintillement). Snapshots `SnapshotCommands()/SnapshotReturns()` (thread principal,
+      Arch A). **Zéro écriture `cmd`.** Décodage centralisé dans `CommandChainLabels` (booléens
+      `Km1Aux/B1Present/B2Present` exposés pour la coloration).
+- [x] `demo_sprint_03.ps1` : pré-vol port 502 (calqué demo_02), 6 phases guidées annonçant étiquette +
+      couleur à regarder, **ASCII pur**, parse PS OK.
+- [x] Build Godot **0 erreur** ; `smoke_anim.ps1` **vert** ; **4 pytest full-chain verts** (scène
+      headless sur :502). Banc **inchangé (95)**.
+- Fichiers : `runtime/scenes/CarrouselScene.cs` (capture refs matériaux/nœuds anneau+fenêtres,
+  création + alimentation labels, `_Process` coloration) + `runtime/scenes/CommandChainLabels.cs`
+  (**neuf**) + `runtime/scripts/demo_sprint_03.ps1` (**neuf**).
+- Points durs tranchés : `Label3D` billboard + `NoDepthTest=true` + contour noir → lisible sous tout
+  angle ; texte **une ligne/élément** (compact) à `PixelSize=0.0022`, hauteurs locales étagées
+  (KM1 1.05, vérins 0.55, capteurs 0.45) pour éviter la superposition. Ambiguïté de type `Signal`
+  (Godot.Signal vs CarrouselCore.Signal) levée par alias `using Signal = CarrouselCore.Signal;`.
+- **Validation manuelle restante (Nico)** : F5 → lire les étiquettes %MW + voir les couleurs suivre
+  l'état ; dérouler `demo_sprint_03.ps1` ; confirmer lisibilité de la chaîne à l'œil (+ M580 réel).
 
 ## Objectif
 Rendre le démonstrateur **robuste** (échecs bruyants) et **lisible** (chaîne de commande tracée
@@ -90,12 +119,14 @@ S3.2/S3.3 : glue lecture seule → `smoke_anim.ps1` + 4 pytest full-chain **inch
 - `RegistersChanged` fiable ? → mini-vérif en tête de S3.1, repli documenté.
 
 ## REPRISE
-1. Relire `CLAUDE.md`, ce fichier, l'`overview.md`, et l'amorce du sous-sprint courant.
-2. **Sous-sprint courant : S3.3** (chaîne par élément + démo). S3.1 **et** S3.2 sont FAITS (voir
-   avancement ci-dessus), changements sur disque **non commités** — l'orchestrateur commit avant/après.
-   S3.3 partage `CarrouselScene.cs` avec S3.2 → rester chirurgical (ne pas défaire la garde `_serverFailed`
-   ni la création du HUD).
-3. Exécution : `/sprint open 03` (séquentiel strict, un sous-agent cold-start par sous-sprint,
-   autonome jusqu'au vert). Ordre restant : **S3.3**. Nico reprend au rapport final.
-4. Rappel banc S3.1 (témoin figé) : `dotnet test runtime/tests/CarrouselCore.Tests.csproj` (89) **puis**
+1. Relire `CLAUDE.md`, ce fichier, l'`overview.md`, et les amorces.
+2. **Les 3 sous-sprints (S3.1, S3.2, S3.3) sont FAITS** (voir avancement ci-dessus), changements sur
+   disque **non commités** — l'orchestrateur commit. Prochain pas : **validation visuelle Nico**
+   (F5 + `demo_sprint_03.ps1`), puis **`/sprint close 03`** (journal, memory, dettes D-013 soldée,
+   backlog, NOTES.md, réorganisation).
+3. Fichiers S3.3 touchés (non commités) : `runtime/scenes/CarrouselScene.cs`,
+   `runtime/scenes/CommandChainLabels.cs` (neuf), `runtime/scripts/demo_sprint_03.ps1` (neuf).
+4. Rappel banc (témoin figé) : `dotnet test runtime/tests/CarrouselCore.Tests.csproj` (89) **puis**
    `dotnet test runtime/server.tests/CarrouselServer.Tests.csproj` (6) = **95 verts**. Pas de .sln.
+   Non-régression visuelle/Modbus : `runtime/scripts/smoke_anim.ps1` (vert) + `pytest
+   testbench/test_modbus_chain.py` (4 verts, scène headless sur :502).
