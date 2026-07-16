@@ -35,6 +35,17 @@ smoke headless `[carrousel] ring=1 cylinders=2 pallets=3 sensors=2` + `[panel] r
 > code et lance le banc ; l'orchestrateur a **verifie lui-meme** (build + banc + smoke, tous verts) puis
 > **finalise la bookkeeping** (D-018, DoD, ce carnet) avant de commiter.
 
+**S4.4 Demo LIVRE** (2026-07-16) : `runtime/scripts/demo_sprint_04.ps1` (neuf) sur l'ossature de
+`demo_sprint_03.ps1` : `param($PyHost,$Port,[switch]$Repeat)`, resolution arborescence + interpreteur,
+**pre-vol port 502** (refuse si personne n'ecoute / si SimHost tient le port -> D-013). 5 phases guidees
+a la voix ecrivant `cmd` via `io_scanner_sim.py` (jamais `ret`) : (1) navigation camera S4.1 (Maximized,
+orbite/pan/zoom/F11), (2) panneau S4.2 (lignes + %MW, sortie/rentree YV1), (3) rappel ressort YV1
+monostable, (4) surbrillance croisee S4.2+S4.3 (survol ligne<->3D, presence B1), (5) retour repos.
+Rappel D-013 en cloture (zero code). ASCII pur, **pas** de `$ErrorActionPreference='Stop'`. Verifs :
+parse PowerShell OK ; pre-vol a vide -> "rien n'ecoute sur 502", exit 1, **pas de stacktrace** ; banc
+**inchange** (89+6=95). Ne lance PAS Godot, ne touche NI core NI scene. Sprint 4 **complet** (reste NOTES.md
+a la cloture). Validation manuelle Nico : F5 + derouler la demo (navigation/panneau/surbrillance a l'oeil).
+
 ## Objectif
 Ergonomie de demonstration **generique via le pivot** (vaut pour N machines, cf. §0bis) :
 navigation 3D libre, panneau lateral des elements (mapping %MW decode), surbrillance croisee
@@ -67,7 +78,9 @@ erreur. Zero modif core. Tout re-figeage = **regression**. Smoke headless : `pan
 
 ## REPRISE
 **S4.1 + S4.2 + S4.3 faits et commites/pousses** (`1912c6b`, `37b9b7c`, + commit S4.3 orchestrateur).
-Banc **inchange** (95 + build Godot 0 erreur + smoke `rows=5`). Reste **S4.4 Demo**.
+**S4.4 Demo faite** (`demo_sprint_04.ps1`), en attente de commit par l'orchestrateur.
+Banc **inchange** (95 + build Godot 0 erreur + smoke `rows=5`). Les 4 sous-sprints sont livres :
+reste la **cloture** (NOTES.md a rediger, /sprint close).
 
 Validation manuelle Nico (F5, + M580 reel ou io_scanner) restante, cumulee sur S4.1-S4.3 :
 - **S4.1** : maquette Maximized au lancement ; orbite (milieu) / pan (Shift+milieu) / zoom (molette ∝
@@ -80,6 +93,8 @@ Validation manuelle Nico (F5, + M580 reel ou io_scanner) restante, cumulee sur S
   identique) ; composition emission/**glass** (fenetres semi-transparentes) a verifier a l'oeil ; la
   coloration d'etat n'est jamais perdue au retour du survol.
 
-Prochaine etape : **S4.4 Demo** (`brique_04_demo.md`, depend de S4.1-S4.3 : `demo_sprint_04.ps1` guide
-avec pre-vol port 502, scenarios navigation/panneau/survol, re-montre D-013, sortie observable).
-Puis cloture : NOTES.md a rediger. Dette nee ce sprint : **D-018** (champs de nœuds vestigiaux).
+- **S4.4** : derouler `demo_sprint_04.ps1` (F5 d'abord) ; suivre le guidage des 5 phases et confirmer a
+  l'oeil navigation (souris/F11), panneau (%MW), surbrillance croisee ligne<->3D pendant que ca s'anime.
+
+Prochaine etape : **cloture du sprint** (NOTES.md a rediger, /sprint close). Les 4 sous-sprints sont
+livres. Dette nee ce sprint : **D-018** (champs de nœuds vestigiaux).
