@@ -39,6 +39,17 @@ build Godot 0 erreur (glue Godot pure, **zéro modif core**). Tout re-figeage se
 
 ---
 
+## 2026-07-16 — Ouverture Sprint 4 (`/sprint open 04`)
+
+**Contexte** : conception figée, git propre, baseline banc confirmée **95 verts** (89 core + 6 serveur)
+avant tout lancement. Les 4 sous-sprints partagent `CarrouselScene.cs` → **orchestration séquentielle
+stricte** : S4.1 → S4.2 → S4.3 → S4.4, un sous-agent cold-start autonome par item, commit orchestrateur
+entre chaque. Banc à préserver inchangé (95 + 4 pytest full-chain + build Godot 0 erreur).
+
+**Action** : items backlog S4.1–S4.4 passés en `[~]`. (Résultat consolidé rédigé à la clôture.)
+
+---
+
 ## 2026-07-16 — Ouverture Sprint 3 : durcir le démonstrateur (robustesse + traçabilité)
 
 **Contexte** : sprints 1 & 2 clos, démonstrateur 3D vivant validé à l'œil. Conception du sprint 3

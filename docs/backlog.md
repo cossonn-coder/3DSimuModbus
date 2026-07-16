@@ -65,14 +65,14 @@ Brief : `docs/sprints/sprint_01/overview.md`
 > **Lecture seule**, pivot inchangé, Arch A intacte, **banc inchangé** (95 + 4 pytest). Solde la partie
 > **navigation** de D-015 (la vitesse réglable reste reportée).
 - 🔄 Sprint 4 : 4 sous-sprints séquentiels (orchestrés par `/sprint open 04`), conception figée 2026-07-16 :
-  - [ ] S4.1 — Présentation : caméra orbitale (CAO) + plein écran/résolution (`project.godot`) + F11.
+  - [~] S4.1 — Présentation : caméra orbitale (CAO) + plein écran/résolution (`project.godot`) + F11.
     — amorce : `docs/sprints/sprint_04/brique_01_presentation.md`
-  - [ ] S4.2 — Panneau latéral (5 colonnes, peuplé du pivot) + relocalisation du décodage + dépose
+  - [~] S4.2 — Panneau latéral (5 colonnes, peuplé du pivot) + relocalisation du décodage + dépose
     `CommandChainLabels` + coloration préservée + survol ligne→3D.
     — amorce : `docs/sprints/sprint_04/brique_02_panneau.md`
-  - [ ] S4.3 — Picking 3D→panneau (Area3D + surbrillance symétrique).
+  - [~] S4.3 — Picking 3D→panneau (Area3D + surbrillance symétrique).
     — amorce : `docs/sprints/sprint_04/brique_03_picking.md`
-  - [ ] S4.4 — `demo_sprint_04.ps1` + sortie observable (re-montre D-013).
+  - [~] S4.4 — `demo_sprint_04.ps1` + sortie observable (re-montre D-013).
     — amorce : `docs/sprints/sprint_04/brique_04_demo.md`
 
 ## Phase 4 — Intégration M580 réelle ⏳
