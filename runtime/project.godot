@@ -19,6 +19,25 @@ config/description="Maquette 3D simulable d'un carrousel a palettes, serveur Mod
 run/main_scene="res://scenes/main.tscn"
 config/features=PackedStringArray("4.6", "C#", "Forward Plus")
 
+[display]
+
+; Presentation plein ecran (S4.1). mode=2 => Maximized : la fenetre s'ouvre au maximum de
+; l'ecran, barre de titre visible (F11 bascule vers le vrai plein ecran, cf. OrbitCamera).
+window/size/mode=2
+; Base de conception 1920x1080 : sert de reference au stretch canvas_items (echelle des UI,
+; utile des S4.2) ; la fenetre reelle s'ouvre a la resolution de l'ecran.
+window/size/viewport_width=1920
+window/size/viewport_height=1080
+; canvas_items + expand : l'UI 2D est mise a l'echelle depuis la base, et l'espace supplementaire
+; (ratio d'ecran different de 16:9) est occupe plutot que barre de bandes noires.
+window/stretch/mode="canvas_items"
+window/stretch/aspect="expand"
+
 [dotnet]
 
 project/assembly_name="DemonstrateurCarrousel"
+
+[rendering]
+
+; Anti-aliasing MSAA 4x pour une maquette nette en presentation (enum Godot : 0=off,1=2x,2=4x,3=8x).
+anti_aliasing/quality/msaa_3d=2

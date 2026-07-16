@@ -4,7 +4,11 @@
 > Conception **figee** le 2026-07-16. Tenu a jour par chaque sous-sprint pendant l'execution.
 
 ## Ou on en est
-Conception close. Sprint pret pour `/sprint open 04` : **4 sous-sprints sequentiels**, banc **inchange**.
+Conception close. **S4.1 Presentation LIVRE** (2026-07-16) : `OrbitCamera.cs` (neuf, gimbal CAO :
+orbite=milieu, pan=Shift+milieu, zoom=molette ∝ distance, pitch clampe [-89,-5], distance bornee
+du rayon), `AddPresentation` instancie la camera orbitale (lumiere conservee), `project.godot`
+(Maximized/1920x1080/stretch canvas_items+expand/MSAA 4x), F11 gere dans `OrbitCamera._UnhandledInput`.
+Banc **inchange** (89+6=95 verts), build Godot **0 erreur**. Reste : S4.2 Panneau, S4.3 Picking, S4.4 Demo.
 
 ## Objectif
 Ergonomie de demonstration **generique via le pivot** (vaut pour N machines, cf. §0bis) :
@@ -37,6 +41,9 @@ forme approximative · `GetViewport().PhysicsObjectPicking=true` requis (S4.3) �
 erreur. Zero modif core. Tout re-figeage = **regression**. Smoke headless : `panel_rows` = nb composants.
 
 ## REPRISE
-Conception figee. Prochaine etape : `git` (commit doc+amorces+CLAUDE.md §0bis+journal/backlog/dettes),
-puis `/clear`, puis `/sprint open 04`. Pendant l'execution, chaque sous-sprint coche sa DoD et met a
-jour ce carnet (section « Ou on en est »). NOTES.md a rediger a la cloture.
+**S4.1 fait**, non commite (l'orchestrateur commit). Fichiers touches : `runtime/scenes/OrbitCamera.cs`
+(neuf), `runtime/scenes/CarrouselScene.cs` (`AddPresentation` seul), `runtime/project.godot` (sections
+[display]+[rendering]). Validation manuelle Nico (F5) restante : maquette maximisee, orbite/pan/zoom OK,
+pas sous le sol ni traversee, F11 bascule. Prochaine etape : **S4.2 Panneau** (`brique_02_panneau.md`,
+depend de S4.1). Chaque sous-sprint coche sa DoD et met a jour la section « Ou on en est ». NOTES.md a
+rediger a la cloture.

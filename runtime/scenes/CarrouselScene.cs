@@ -374,16 +374,20 @@ public partial class CarrouselScene : Node3D
     }
 
     /// <summary>
-    /// Ajoute une camera et une lumiere directionnelle pour pouvoir « voir » la maquette. Ces noeuds
-    /// ne sont PAS pilotes par le pivot ; on les cree par code car <c>LookAt</c> garantit un cadrage
-    /// correct sans transformation ecrite a la main. Non comptes dans le recensement du smoke-test.
+    /// Ajoute une camera ORBITALE libre (style CAO, S4.1) et une lumiere directionnelle pour « voir »
+    /// la maquette. Ces noeuds ne sont PAS pilotes par le pivot : seul le CADRAGE INITIAL de la camera
+    /// se deduit du pivot (center/radius passes a FrameFrom), ensuite elle est libre. La camera vit
+    /// entierement dans <see cref="OrbitCamera"/> (input souris/clavier + F11). Non comptes dans le
+    /// recensement du smoke-test. La lumiere, elle, reste inchangee.
     /// </summary>
     private void AddPresentation(Vector3 center, float radius)
     {
-        var cam = new Camera3D { Name = "InspectionCamera", Current = true };
+        // Camera orbitale : le gimbal se cadre depuis le pivot (point d'interet = centre, distance
+        // deduite du rayon), puis l'utilisateur navigue librement. AddChild declenche son _Ready
+        // (creation de la Camera3D enfant) de facon synchrone -> FrameFrom peut agir juste apres.
+        var cam = new OrbitCamera { Name = "OrbitCamera" };
         AddChild(cam);
-        float back = radius * 2.2f + 1f;
-        cam.LookAtFromPosition(center + new Vector3(0, radius * 2f + 1f, back), center, Vector3.Up);
+        cam.FrameFrom(center, radius);
 
         var light = new DirectionalLight3D { Name = "SunLight" };
         AddChild(light);
