@@ -25,7 +25,7 @@ consommé par le runtime Godot. **Toute évolution fonctionnelle commence par ce
   s'adressent à un lecteur qui découvre le sujet.
 - **Les commentaires pédagogiques ne sont jamais comptés comme dette ni supprimés
   lors d'un refactor.** Un refactor les met à jour, ne les efface pas.
-- Chaque sprint produit un `docs/notes/NOTES_sprint_XX.md` qui décompose en détail
+- Chaque sprint produit un `docs/sprints/sprint_XX/NOTES.md` qui décompose en détail
   les mécanismes clés introduits (schémas, séquences, pièges rencontrés).
 
 ### Modbus / conventions Schneider
@@ -121,13 +121,15 @@ l'implémentation plutôt qu'après les erreurs.
 /
 ├── CLAUDE.md                  ← ce fichier
 ├── .claude/commands/          ← /conception /sprint /audit /refactor /test_suite
+│                                (miroir dans .claude/skills/, tenu identique)
 ├── docs/
 │   ├── memory.md              ← décisions actées (source de vérité)
 │   ├── journal.md             ← chronologie des sprints
 │   ├── dettes.md              ← dettes techniques et simplifications assumées
 │   ├── backlog.md             ← phases et tâches à venir
-│   ├── notes/                 ← NOTES_sprint_XX.md pédagogiques
-│   └── sprints/               ← briefs de sprint autosuffisants
+│   └── sprints/               ← UN DOSSIER PAR SPRINT :
+│       └── sprint_NN/         ← 00_etat.md (carnet vivant) · overview.md ·
+│                                brique_MM_*.md (amorces) · NOTES.md (pédago, à la clôture)
 ├── pivot/machine_carrousel.json  ← contrat central
 ├── testbench/                 ← Python : émulateur I/O Scanner + pytest
 └── runtime/                   ← projet Godot 4 C# (serveur Modbus + simulation + 3D)

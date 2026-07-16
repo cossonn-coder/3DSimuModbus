@@ -3,6 +3,8 @@
 .import/
 export.cfg
 export_presets.cfg
+# Fichiers .uid generes par Godot 4.x (references de ressources) : non versionnes (decision 2026-07-16)
+*.uid
 
 # .NET
 .mono/

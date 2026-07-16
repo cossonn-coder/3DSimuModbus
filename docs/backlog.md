@@ -9,7 +9,7 @@ Statuts : ✅ fait · 🔄 en cours · ⏳ à venir · 🧊 gelé (post-démonst
 - ✅ CLAUDE.md + orchestration + commandes
 
 ## Phase 1 — Chaîne Modbus de bout en bout 🔄
-Brief : `docs/sprints/sprint_01_brief.md`
+Brief : `docs/sprints/sprint_01/overview.md`
 - ✅ Sprint 1 : datastore thread-safe + serveur Modbus + heartbeat + banc de test
   Python (émulateur I/O Scanner) + pytest **+ maquette 3D statique** (clos 2026-07-15)
   - ✅ Brique 1 : loader pivot C# (`PivotModel`) + class library `CarrouselCore` +
@@ -22,14 +22,14 @@ Brief : `docs/sprints/sprint_01_brief.md`
   - ✅ Brique 4a : boucle de simulation vérins + convoyeur + heartbeat (cinématique scriptée
     pure : `CylinderState`, `ConveyorState`, `CarrouselSimulation`) + hôte headless `SimHost`.
     **63 verts** + les **4 scénarios pytest full-chain débloqués**. Amorce cochée.
-    — amorce : `docs/sprints/sprint_01_brique_04a_verins_convoyeur.md`
+    — amorce : `docs/sprints/sprint_01/brique_04a_verins_convoyeur.md`
   - ✅ Brique 4b : palettes + accumulation `min_gap_deg` + présence B1/B2 (`PalletSet`,
     modèle pur ; accumulation `mod 360` en espace « sens de marche », D-008 non créée). **82 verts**.
-    — amorce : `docs/sprints/sprint_01_brique_04b_palettes.md`
+    — amorce : `docs/sprints/sprint_01/brique_04b_palettes.md`
   - ✅ Brique 5 : scène 3D **statique** procédurale depuis le pivot (anneau CSG, 2 vérins,
     3 palettes, fenêtres capteurs). Extension core additive (option A). **Core 87 verts**, assembly
     Godot compile ; smoke-test headless + conformité visuelle à confirmer (**D-010**).
-    — amorce : `docs/sprints/sprint_01_brique_05_scene3d.md`
+    — amorce : `docs/sprints/sprint_01/brique_05_scene3d.md`
   - ⏳ Diff **canonique formel** Python↔C# des loaders (émetteur canonique côté Python
     à écrire ; `ToCanonical()` déjà présent côté C#) — parité par assertions communes
     en attendant *(reporté hors sprint 1)*
