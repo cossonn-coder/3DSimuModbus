@@ -27,7 +27,38 @@ touché**, **Arch A intacte**.
 **État banc à l'ouverture** : **90 tests verts** (87 core + 3 serveur), 4 pytest full-chain verts.
 S3.1 re-figera le banc (nouveaux témoins, total annoncé).
 
-**Résultat** : _(à compléter à la clôture)_
+**Résultat (clôture 2026-07-16)** — sprint **livré**, 3 sous-sprints verts et commités, DoD atteinte
+(hors validation visuelle Nico) :
+- **S3.1** (`6ae64d5`) : `ModbusServer` durci — `ModbusServerException` (type dédié), `IsListening`,
+  `LastClientWriteUtc` (`Interlocked`), `ModbusDataStore.SnapshotReturns()`. Banc **re-figé 90 → 95**
+  (89 core + 6 serveur, +5 témoins santé). **Points durs tranchés empiriquement** : bind occupé =
+  échec **synchrone** (`SocketException`) → pré-vol `TcpListener` + try/catch (ceinture-bretelles) ;
+  `RegistersChanged` **fiable** avec `AlwaysRaiseChangedEvent=true` (fire même sur FC16 valeur
+  identique, indispensable pour l'I/O Scanner) → pas de repli, pas de dette.
+- **S3.2** (`30e4f2b`) : `HealthHud` (neuf) — bandeau rouge d'échec de bind (**solde D-013**) +
+  panneau santé (serveur / heartbeat / activité PLC), lecture seule ~5 Hz sur le thread principal.
+  `CarrouselScene` : try/catch `ModbusServerException`, garde `_serverFailed`, `_ExitTree`
+  conditionnel. Banc **inchangé (95)**, build Godot 0 erreur, `smoke_anim.ps1` + 4 pytest verts.
+- **S3.3** (`f1523f2`) : `CommandChainLabels` (neuf) — étiquettes 3D `cmd %MW → physique → ret %MW`
+  par élément **décodées du pivot** (jamais d'adresse en dur) + coloration d'état (tige/anneau/
+  fenêtres, matériaux réutilisés) rafraîchies ~6 Hz. `demo_sprint_03.ps1` (neuf). Banc **inchangé (95)**.
+
+**Ce qui a surpris** : le bind occupé s'est révélé **synchrone** (on craignait un échec silencieux) —
+tranché par une sonde jetable avant d'écrire le correctif. Et `RegistersChanged` a bien un mode
+« lève même sans changement de valeur », sans quoi un PLC présent mais stable aurait paru déconnecté.
+
+**Décisions actées** (voir `memory.md`) : `ModbusServerException` + pré-vol/catch ; activité PLC via
+`RegistersChanged`/`AlwaysRaiseChangedEvent` + `LastClientWriteUtc` (Interlocked, Arch A) ;
+`SnapshotReturns` ; étiquettes %MW décodées du pivot + coloration par mutation d'`AlbedoColor` ;
+QCM D-Q1..D-Q4. **Dettes** : **D-013 soldée**. Consignées hors périmètre (déjà au sprint de
+conception) : D-015 (nav 3D + vitesse), D-016 (édition in-app / forçage), D-017 (injection de défauts).
+
+**Validation manuelle restante (Nico)** : F5 → lire les étiquettes %MW + voir les couleurs suivre
+l'état ; occuper le port 502 pour voir le bandeau rouge ; dérouler `demo_sprint_03.ps1` ; puis M580 réel
+(Phase 4). **⚠ Toujours aucun remote git** → commits locaux, push impossible.
+
+**Suite** : Phase 4 = intégration M580 réelle. Ergonomie démo (D-015) et édition in-app (D-016) /
+injection de défauts (D-017) = sprints dédiés à concevoir.
 
 ---
 

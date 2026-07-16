@@ -4,21 +4,17 @@
 > chaque sous-sprint pendant l'exécution. Reprise à froid : `CLAUDE.md` + ce fichier + l'amorce.
 
 ## Où on en est
-Conception **close**, sprint **en cours d'exécution**. 3 sous-sprints, amorces rédigées.
-Sprints 1 & 2 clos (démonstrateur 3D animé depuis la sim via Modbus, validé à l'œil).
-**S3.1 + S3.2 + S3.3 tous FAITS** (2026-07-16, non commités) — le sprint 3 est prêt pour clôture
-(`/sprint close 03`) après validation visuelle Nico. Banc **95 verts** de bout en bout.
+Sprint 3 **CLOS** (2026-07-16). 3 sous-sprints livrés, verts et **commités** ; NOTES + journal +
+memory + dettes + backlog à jour. **Reste : validation visuelle Nico** (F5 + `demo_sprint_03.ps1`).
+Sprints 1 & 2 clos avant. Banc **95 verts** de bout en bout ; build Godot 0 erreur ; 4 pytest full-chain verts.
 
-**Avancement S3.x :**
-- **S3.1 Backend santé — FAIT** (2026-07-16, non commité, en attente orchestrateur). Banc re-figé
-  **90 → 95**. Détails ci-dessous (DoD + points durs tranchés).
-- **S3.2 Santé visible — FAIT** (2026-07-16, non commité, en attente orchestrateur). HUD lecture
-  seule (bandeau échec bind + panneau santé). Banc **inchangé (95)**. **D-013 soldée** (visibilité).
-  Détails ci-dessous.
-- **S3.3 Chaîne par élément + démo — FAIT** (2026-07-16, non commité, en attente orchestrateur).
-  Étiquettes 3D `cmd %MW → physique → ret %MW` par élément (KM1/YV1/YV2/B1/B2) décodées du pivot +
-  coloration d'état (tige/anneau/fenêtres) + `demo_sprint_03.ps1`. Banc **inchangé (95)**. Détails
-  ci-dessous.
+**Avancement S3.x (tous CLOS, commités) :**
+- **S3.1 Backend santé — CLOS** (`6ae64d5`). Banc re-figé **90 → 95**. DoD + points durs ci-dessous.
+- **S3.2 Santé visible — CLOS** (`30e4f2b`). HUD lecture seule (bandeau échec bind + panneau santé).
+  Banc **inchangé (95)**. **D-013 soldée** (visibilité). Détails ci-dessous.
+- **S3.3 Chaîne par élément + démo — CLOS** (`f1523f2`). Étiquettes 3D `cmd %MW → physique → ret %MW`
+  par élément (KM1/YV1/YV2/B1/B2) décodées du pivot + coloration d'état + `demo_sprint_03.ps1`.
+  Banc **inchangé (95)**. Détails ci-dessous.
 
 ### S3.1 — DoD cochée
 - [x] `ModbusServerException` (type dédié) créée — `runtime/server/ModbusServerException.cs`.
@@ -119,14 +115,14 @@ S3.2/S3.3 : glue lecture seule → `smoke_anim.ps1` + 4 pytest full-chain **inch
 - `RegistersChanged` fiable ? → mini-vérif en tête de S3.1, repli documenté.
 
 ## REPRISE
-1. Relire `CLAUDE.md`, ce fichier, l'`overview.md`, et les amorces.
-2. **Les 3 sous-sprints (S3.1, S3.2, S3.3) sont FAITS** (voir avancement ci-dessus), changements sur
-   disque **non commités** — l'orchestrateur commit. Prochain pas : **validation visuelle Nico**
-   (F5 + `demo_sprint_03.ps1`), puis **`/sprint close 03`** (journal, memory, dettes D-013 soldée,
-   backlog, NOTES.md, réorganisation).
-3. Fichiers S3.3 touchés (non commités) : `runtime/scenes/CarrouselScene.cs`,
-   `runtime/scenes/CommandChainLabels.cs` (neuf), `runtime/scripts/demo_sprint_03.ps1` (neuf).
-4. Rappel banc (témoin figé) : `dotnet test runtime/tests/CarrouselCore.Tests.csproj` (89) **puis**
-   `dotnet test runtime/server.tests/CarrouselServer.Tests.csproj` (6) = **95 verts**. Pas de .sln.
+1. **Sprint 3 CLOS et commité** (`6ae64d5` S3.1, `30e4f2b` S3.2, `f1523f2` S3.3). NOTES pédagogiques
+   rédigées (`NOTES.md`), journal/memory/dettes/backlog à jour. Rien ne reste à orchestrer sur ce sprint.
+2. **Seule action ouverte : validation visuelle Nico** — F5 sur la scène pour lire les étiquettes %MW +
+   voir les couleurs suivre l'état ; occuper le port 502 (`SimHost`) pour vérifier le **bandeau rouge** ;
+   dérouler `runtime/scripts/demo_sprint_03.ps1`. Puis confrontation **M580 réel** (Phase 4).
+3. Rappel banc (témoin figé **95**) : `dotnet test runtime/tests/CarrouselCore.Tests.csproj` (89) **puis**
+   `dotnet test runtime/server.tests/CarrouselServer.Tests.csproj` (6). Pas de .sln (deux projets séparés).
    Non-régression visuelle/Modbus : `runtime/scripts/smoke_anim.ps1` (vert) + `pytest
    testbench/test_modbus_chain.py` (4 verts, scène headless sur :502).
+4. **Suite projet** : Phase 4 (M580 réel). Sprints dédiés à concevoir : D-015 (nav 3D + vitesse),
+   D-016 (édition in-app / forçage), D-017 (injection de défauts).
