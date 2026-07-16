@@ -95,6 +95,18 @@ public sealed class ModbusDataStore
     }
 
     /// <summary>
+    /// Renvoie une COPIE atomique de la zone ret (les mots reellement publies vers le M580).
+    /// Miroir strict de <see cref="SnapshotCommands"/> : sert au HUD (S3.3) a afficher la trame
+    /// FC3 telle qu'elle sera lue par le PLC, sans jamais exposer la reference interne (muter le
+    /// tableau rendu ne touche pas l'etat). Lecture SEULE : aucune logique nouvelle.
+    /// </summary>
+    public ushort[] SnapshotReturns()
+    {
+        lock (_lock)
+            return (ushort[])_ret.Clone();
+    }
+
+    /// <summary>
     /// Remplace la zone ret d'un bloc (publication fin de tick). La longueur doit valoir
     /// exactement <see cref="ReturnWordCount"/>, sinon on echoue clairement (jamais de
     /// publication partielle). Le contenu est COPIE : l'appelant garde la propriete de son

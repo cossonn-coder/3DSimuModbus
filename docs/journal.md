@@ -6,6 +6,31 @@ surpris, décisions prises (reportées dans memory.md), état des tests.
 
 ---
 
+## 2026-07-16 — Ouverture Sprint 3 : durcir le démonstrateur (robustesse + traçabilité)
+
+**Contexte** : sprints 1 & 2 clos, démonstrateur 3D vivant validé à l'œil. Conception du sprint 3
+figée le 2026-07-16 (`docs/sprints/sprint_03/`, décisions D-Q1..D-Q4 + D-arch). Deux manques pour
+une démo solide devant l'automaticien : robustesse muette (bind 502 silencieux, **D-013**) et
+illisibilité (rien ne trace la chaîne %MW ↔ physique à l'écran).
+
+**Objectif** : rendre les échecs **bruyants** et la chaîne de commande **lisible par élément 3D**,
+avant le M580 réel (Phase 4). **Lecture seule** (zéro écriture `cmd`, forçage → D-016), **pivot non
+touché**, **Arch A intacte**.
+
+**Orchestration** (`/sprint open 03`, séquentiel strict autonome, un sous-agent cold-start/sous-sprint) :
+- **S3.1** — Backend santé (headless/xUnit) : bind visible + test qui reproduit D-013, `IsListening`,
+  `LastClientWriteUtc`, `SnapshotReturns`. Disjoint.
+- **S3.2** — Santé visible : bandeau bind + panneau santé ; **solde D-013**. Partage `CarrouselScene.cs`.
+- **S3.3** — Chaîne par élément (étiquettes %MW + coloration d'état) + `demo_sprint_03.ps1`. Partage
+  `CarrouselScene.cs` → **S3.2 avant S3.3**.
+
+**État banc à l'ouverture** : **90 tests verts** (87 core + 3 serveur), 4 pytest full-chain verts.
+S3.1 re-figera le banc (nouveaux témoins, total annoncé).
+
+**Résultat** : _(à compléter à la clôture)_
+
+---
+
 ## 2026-07-15 — Ouverture Sprint 2 : cinématique visuelle (animer la 3D depuis la sim)
 
 **Contexte** : sprint 1 clos (chaîne Modbus bout-en-bout + maquette 3D **statique**). Archi du sprint 2

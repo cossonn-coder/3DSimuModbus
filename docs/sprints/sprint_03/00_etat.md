@@ -4,8 +4,36 @@
 > chaque sous-sprint pendant l'exécution. Reprise à froid : `CLAUDE.md` + ce fichier + l'amorce.
 
 ## Où on en est
-Conception **close**, sprint **prêt pour `/sprint open 03`**. 3 sous-sprints, amorces rédigées.
+Conception **close**, sprint **en cours d'exécution**. 3 sous-sprints, amorces rédigées.
 Sprints 1 & 2 clos (démonstrateur 3D animé depuis la sim via Modbus, validé à l'œil).
+
+**Avancement S3.x :**
+- **S3.1 Backend santé — FAIT** (2026-07-16, non commité, en attente orchestrateur). Banc re-figé
+  **90 → 95**. Détails ci-dessous (DoD + points durs tranchés).
+- S3.2 Santé visible — à faire (prochain).
+- S3.3 Chaîne par élément + démo — à faire.
+
+### S3.1 — DoD cochée
+- [x] `ModbusServerException` (type dédié) créée — `runtime/server/ModbusServerException.cs`.
+- [x] Test de repro D-013 : 2ᵉ `Start()` sur le même port → `Assert.Throws<ModbusServerException>`. **Vert.**
+- [x] `Start()` : échec bind → `ModbusServerException` (message FR + bind:port) ; succès → `IsListening == true`.
+      Nominal inchangé (les 3 tests transport/endianness restent verts).
+- [x] `LastClientWriteUtc` : non-`null` après FC16 réel, thread-safe (`Interlocked`).
+- [x] `ModbusDataStore.SnapshotReturns()` : copie défensive sous verrou + 2 tests.
+- [x] `dotnet test` **vert** : core 87→89, serveur 3→6, **total 95**.
+- [ ] 4 pytest full-chain — **non lancés** (hors périmètre S3.1 par consigne orchestrateur ; nominal
+      Modbus inchangé, additif seulement).
+
+### S3.1 — Points durs tranchés (empirique)
+- **Bind occupé = SYNCHRONE** : `ModbusTcpServer.Start()` (FluentModbus 5.3.2) lève une
+  `SocketException` synchrone sur port occupé (vérifié par probe jetable). Implémentation retenue :
+  **pré-vol `TcpListener`** (détection indépendante de la lib, filet type `demo_sprint_02.ps1` ramené
+  dans l'app) **+** try/catch autour de `_server.Start()` (ceinture-bretelles). Les deux enveloppent
+  en `ModbusServerException`.
+- **`RegistersChanged` fiable** : oui. FluentModbus 5.3.2 expose `EnableRaisingEvents` +
+  **`AlwaysRaiseChangedEvent`** ; armés tous deux → l'event fire sur FC16 **même valeur identique**
+  (indispensable pour l'I/O Scanner qui réécrit `cmd` à l'identique). **Pas de repli, pas de dette.**
+  Test dédié : 2ᵉ écriture même valeur → horodatage avance.
 
 ## Objectif
 Rendre le démonstrateur **robuste** (échecs bruyants) et **lisible** (chaîne de commande tracée
@@ -29,7 +57,8 @@ Rendre le démonstrateur **robuste** (échecs bruyants) et **lisible** (chaîne 
 > S3.2 & S3.3 partagent `CarrouselScene.cs` → **S3.2 avant S3.3**. S3.1 disjoint.
 
 ## Banc
-S3.1 : `dotnet test` **re-figé** (nouveaux témoins ; réf. actuelle **90**, annoncer le total).
+S3.1 : `dotnet test` **re-figé 90 → 95** (+5 témoins : repro bind D-013, `IsListening`, activité PLC,
+2× `SnapshotReturns`). **Fait.** Deux projets à lancer séparément (pas de .sln).
 S3.2/S3.3 : glue lecture seule → `smoke_anim.ps1` + 4 pytest full-chain **inchangés/verts**.
 
 ## Dettes
@@ -44,5 +73,9 @@ S3.2/S3.3 : glue lecture seule → `smoke_anim.ps1` + 4 pytest full-chain **inch
 
 ## REPRISE
 1. Relire `CLAUDE.md`, ce fichier, l'`overview.md`, et l'amorce du sous-sprint courant.
-2. Exécution : `/sprint open 03` (séquentiel strict, un sous-agent cold-start par sous-sprint,
-   autonome jusqu'au vert). Ordre : **S3.1 → S3.2 → S3.3**. Nico reprend au rapport final.
+2. **Sous-sprint courant : S3.2** (santé visible). S3.1 est FAIT (voir avancement ci-dessus),
+   changements sur disque **non commités** — l'orchestrateur commit avant/après S3.2.
+3. Exécution : `/sprint open 03` (séquentiel strict, un sous-agent cold-start par sous-sprint,
+   autonome jusqu'au vert). Ordre restant : **S3.2 → S3.3**. Nico reprend au rapport final.
+4. Rappel banc S3.1 (témoin figé) : `dotnet test runtime/tests/CarrouselCore.Tests.csproj` (89) **puis**
+   `dotnet test runtime/server.tests/CarrouselServer.Tests.csproj` (6) = **95 verts**. Pas de .sln.

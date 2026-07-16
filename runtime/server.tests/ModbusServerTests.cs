@@ -17,6 +17,7 @@
 // injecte un port EPHEMERE libre dans un pivot de test et on ecoute sur loopback. Le vrai
 // M580 utilisera le port du pivot sur toutes les interfaces (IPAddress.Any en prod).
 
+using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 using CarrouselCore;
@@ -92,6 +93,83 @@ public class ModbusServerTests
         var client = new ModbusTcpClient();
         client.Connect(new IPEndPoint(IPAddress.Loopback, port), endianness);
         return client;
+    }
+
+    // Petite attente active bornee : le handler RegistersChanged fire sur le THREAD SERVEUR
+    // FluentModbus. En pratique il est leve pendant le traitement de la requete FC16, donc avant
+    // meme que WriteMultipleRegisters ne rende la main cote client ; ce poll n'est qu'un filet
+    // anti-flakiness (ordonnancement de thread) et sort des que la condition est vraie.
+    private static void WaitUntil(Func<bool> condition, int timeoutMs = 2000)
+    {
+        var sw = Stopwatch.StartNew();
+        while (!condition() && sw.ElapsedMilliseconds < timeoutMs)
+            Thread.Sleep(5);
+    }
+
+    // =====================================================================
+    // 0. Sante du serveur : bind occupe bruyant (D-013) + IsListening + activite PLC
+    // =====================================================================
+
+    // D-013 : REPRODUCTION du bind occupe. Un 1er serveur ecoute sur un port P ; un 2nd serveur
+    // demarre sur le MEME P doit echouer CLAIREMENT (ModbusServerException) et non pretendre
+    // ecouter. C'est la preuve que l'echec de bind est desormais bruyant (avant : muet).
+    [Fact]
+    public void Bind_occupe_leve_ModbusServerException()
+    {
+        using var first = Start();   // occupe loopback:P
+
+        // 2nd serveur sur le meme port, meme interface loopback.
+        var pivot2 = LoadPivotWithPort(first.Port);
+        var store2 = new ModbusDataStore(pivot2);
+        using var second = new ModbusServer(pivot2, store2, IPAddress.Loopback);
+
+        var ex = Assert.Throws<ModbusServerException>(() => second.Start());
+        Assert.Contains(first.Port.ToString(), ex.Message);   // message FR cite bind:port
+        Assert.False(second.IsListening);                     // n'a jamais pretendu ecouter
+    }
+
+    // IsListening : faux avant Start, vrai apres un Start reussi.
+    [Fact]
+    public void IsListening_faux_avant_start_vrai_apres()
+    {
+        int port = FreeTcpPort();
+        var pivot = LoadPivotWithPort(port);
+        var store = new ModbusDataStore(pivot);
+        using var server = new ModbusServer(pivot, store, IPAddress.Loopback);
+
+        Assert.False(server.IsListening);   // pas encore demarre
+        server.Start();
+        Assert.True(server.IsListening);    // ecoute confirmee
+    }
+
+    // Activite PLC : LastClientWriteUtc null tant qu'aucun client n'a ecrit, puis non-null apres
+    // une trame FC16. Second volet : l'event RegistersChanged fire MEME si la valeur cmd ne change
+    // pas (AlwaysRaiseChangedEvent) — indispensable car l'I/O Scanner reecrit cmd a l'identique a
+    // chaque scan. On reecrit la MEME valeur et on verifie que l'horodatage AVANCE malgre tout.
+    [Fact]
+    public void LastClientWrite_est_alimente_par_une_ecriture_fc16()
+    {
+        using var ctx = Start();
+        using var client = Connect(ctx.Port, ModbusEndianness.BigEndian);
+
+        Assert.Null(ctx.Server.LastClientWriteUtc);   // aucun client n'a encore ecrit
+
+        const ushort cmdValue = 0b0000_0011;
+        int cmdBase = ctx.Pivot.GetZone("cmd").Base;
+        client.WriteMultipleRegisters<ushort>(ctx.Pivot.UnitId, cmdBase, new[] { cmdValue });
+
+        WaitUntil(() => ctx.Server.LastClientWriteUtc is not null);
+        var firstWrite = ctx.Server.LastClientWriteUtc;
+        Assert.NotNull(firstWrite);
+
+        // Ecriture IDENTIQUE : sans AlwaysRaiseChangedEvent, aucun event ne serait leve et
+        // l'horodatage stagnerait. On exige qu'il avance -> preuve que la valeur inchangee fire.
+        Thread.Sleep(5);   // garantit un tick horloge distinct (resolution 100 ns depassee)
+        client.WriteMultipleRegisters<ushort>(ctx.Pivot.UnitId, cmdBase, new[] { cmdValue });
+
+        WaitUntil(() => ctx.Server.LastClientWriteUtc > firstWrite);
+        Assert.True(ctx.Server.LastClientWriteUtc > firstWrite,
+            "RegistersChanged doit fire meme sur une ecriture cmd de valeur identique");
     }
 
     // =====================================================================

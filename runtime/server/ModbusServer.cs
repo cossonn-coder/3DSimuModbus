@@ -42,6 +42,8 @@
 // pivot). Aucune constante d'adresse dans ce fichier.
 
 using System.Net;
+using System.Net.Sockets;
+using System.Threading;
 using CarrouselCore;
 using FluentModbus;
 
@@ -71,6 +73,19 @@ public sealed class ModbusServer : IDisposable
     private readonly int _retCount;
 
     private bool _disposed;
+
+    // Vrai apres un Start() reussi, faux avant (et si Start a echoue). Sert de source au
+    // voyant sante (S3.2) : « le serveur ecoute-t-il vraiment ? ». Ecrit sur le thread
+    // appelant (Start), lu sur le meme thread principal Godot : pas de partage inter-thread,
+    // un bool simple suffit.
+    private bool _isListening;
+
+    // Horodatage (Ticks UTC) de la DERNIERE ecriture cmd recue d'un client (FC16), 0 si jamais.
+    // Ecrit par le handler RegistersChanged qui fire sur le THREAD SERVEUR FluentModbus, lu par
+    // le thread principal Godot -> acces obligatoirement atomique. Un `long` n'est pas garanti
+    // atomique en lecture/ecriture sur plateforme 32 bits : on passe donc TOUJOURS par
+    // Interlocked (Exchange a l'ecriture, Read a la lecture). Pas de DateTime partage non atomique.
+    private long _lastClientWriteTicksUtc;
 
     /// <summary>
     /// Resout port, unit_id et bases de zones depuis le pivot, garde la reference au datastore
@@ -104,6 +119,32 @@ public sealed class ModbusServer : IDisposable
         // Serveur asynchrone par defaut : il traite les requetes client sur son propre thread.
         // On se synchronise avec ce thread via server.Lock dans Pull/Push.
         _server = new ModbusTcpServer();
+
+        // --- Detection d'activite PLC via l'event RegistersChanged (D-Q3) --------------------
+        // FluentModbus 5.3.2 leve RegistersChanged a chaque ecriture de holding register par un
+        // client (FC6/FC16), sur son thread serveur. Deux interrupteurs a armer :
+        //   - EnableRaisingEvents : maitre general (defaut false) — sans lui, aucun event.
+        //   - AlwaysRaiseChangedEvent : lever MEME si la valeur ecrite est identique a l'actuelle.
+        //     CRUCIAL ici : l'I/O Scanner du M580 reecrit la zone cmd A CHAQUE SCAN, le plus
+        //     souvent avec la MEME valeur. Sans ce drapeau, un carrousel a l'arret (cmd stable)
+        //     ne genererait plus aucun event et le voyant « PLC actif » s'eteindrait a tort.
+        // Seul un CLIENT peut declencher cet event : nos propres PushReturns ecrivent le buffer
+        // via GetHoldingRegisters (acces direct, hors chemin requete) et ne le levent donc pas.
+        // => tout RegistersChanged = un client a ecrit = activite PLC reelle. On horodate.
+        _server.EnableRaisingEvents = true;
+        _server.AlwaysRaiseChangedEvent = true;
+        _server.RegistersChanged += OnRegistersChanged;
+    }
+
+    /// <summary>
+    /// Handler appele sur le THREAD SERVEUR FluentModbus a chaque ecriture cmd par un client.
+    /// On ne touche NI le scene tree Godot NI le datastore : on se contente d'horodater de
+    /// facon atomique (Interlocked) la derniere manifestation du PLC. C'est la brique du voyant
+    /// « PLC actif » lu cote Godot (S3.2).
+    /// </summary>
+    private void OnRegistersChanged(object? sender, RegistersChangedEventArgs e)
+    {
+        Interlocked.Exchange(ref _lastClientWriteTicksUtc, System.DateTime.UtcNow.Ticks);
     }
 
     /// <summary>
@@ -113,10 +154,69 @@ public sealed class ModbusServer : IDisposable
     /// </summary>
     public void Start()
     {
+        var endpoint = new IPEndPoint(_bind, _port);
+
+        // --- Pre-vol du port (solde la dette D-013) -----------------------------------------
+        // On lie brievement un TcpListener sur bind:port AVANT de demarrer FluentModbus. Si le
+        // port est deja pris (reliquat SimHost, autre serveur Modbus...), ce bind leve une
+        // SocketException que l'on traduit en ModbusServerException FR claire. Interet : la
+        // detection est INDEPENDANTE de la lib (robuste quel que soit le comportement interne
+        // de FluentModbus, synchrone ou non) — c'est le meme filet que demo_sprint_02.ps1 pose
+        // deja en externe, ramene DANS l'app. Fenetre de course Stop()->Start() negligeable
+        // pour un demonstrateur mono-poste, et FluentModbus est de toute facon enveloppe ci-dessous.
+        var probe = new TcpListener(_bind, _port);
+        try
+        {
+            probe.Start();
+        }
+        catch (SocketException ex)
+        {
+            throw new ModbusServerException(
+                $"impossible d'ecouter sur {_bind}:{_port} — port deja utilise (SimHost reliquat ?)", ex);
+        }
+        finally
+        {
+            probe.Stop();
+        }
+
         // AddUnit AVANT Start : le buffer est alloue par unite ; sans cette declaration le
         // serveur refermerait toute connexion ciblant unit_id=1.
         _server.AddUnit(_unitId);
-        _server.Start(new IPEndPoint(_bind, _port));
+
+        // Filet de securite : si malgre le pre-vol FluentModbus echouait a lier (course, autre
+        // cause reseau), on enveloppe pareil plutot que de laisser fuiter une exception opaque.
+        try
+        {
+            _server.Start(endpoint);
+        }
+        catch (SocketException ex)
+        {
+            throw new ModbusServerException(
+                $"impossible d'ecouter sur {_bind}:{_port} — echec du bind FluentModbus", ex);
+        }
+
+        _isListening = true;
+    }
+
+    /// <summary>
+    /// Vrai uniquement apres un <see cref="Start"/> reussi. Reste faux si le bind a echoue
+    /// (l'exception a alors deja ete levee). Source du voyant sante cote Godot (S3.2).
+    /// </summary>
+    public bool IsListening => _isListening;
+
+    /// <summary>
+    /// Horodatage UTC de la derniere ecriture cmd (FC16) recue d'un client, ou <c>null</c> tant
+    /// qu'aucune n'a eu lieu. Compose atomiquement (Interlocked.Read) le compteur de ticks
+    /// alimente par <see cref="OnRegistersChanged"/> sur le thread serveur. Cote Godot, comparer
+    /// a <c>DateTime.UtcNow</c> donne « le PLC s'est-il manifeste recemment ? ».
+    /// </summary>
+    public System.DateTime? LastClientWriteUtc
+    {
+        get
+        {
+            long ticks = Interlocked.Read(ref _lastClientWriteTicksUtc);
+            return ticks == 0 ? null : new System.DateTime(ticks, System.DateTimeKind.Utc);
+        }
     }
 
     /// <summary>
@@ -169,6 +269,10 @@ public sealed class ModbusServer : IDisposable
         if (_disposed)
             return;
         _disposed = true;
+        _isListening = false;
+        // Desabonnement symetrique de l'abonnement du constructeur : evite qu'un event tardif
+        // ne touche un objet dispose (le handler est inoffensif, mais on reste propre).
+        _server.RegistersChanged -= OnRegistersChanged;
         _server.Stop();
         _server.Dispose();
     }

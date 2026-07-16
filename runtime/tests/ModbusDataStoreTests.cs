@@ -125,6 +125,37 @@ public class ModbusDataStoreTests
     }
 
     // =====================================================================
+    // 3bis. SnapshotReturns : copie isolee, reflet du dernier PublishReturns
+    // =====================================================================
+    //
+    // Miroir strict de SnapshotCommands (memes garanties). Sert au HUD (S3.3) a lire la trame
+    // ret reellement renvoyee au M580, sans risque de muter l'etat interne.
+
+    [Fact]
+    public void SnapshotReturns_reflete_le_dernier_publish()
+    {
+        var store = NewStore();
+        Assert.Equal(new ushort[] { 0, 0 }, store.SnapshotReturns());   // etat initial : zeros
+
+        store.PublishReturns(new ushort[] { 0x00AB, 0x1234 });
+        Assert.Equal(new ushort[] { 0x00AB, 0x1234 }, store.SnapshotReturns());
+    }
+
+    [Fact]
+    public void SnapshotReturns_est_une_copie_defensive()
+    {
+        var store = NewStore();
+        store.PublishReturns(new ushort[] { 0x0001, 0x0002 });
+
+        var snap = store.SnapshotReturns();
+        Assert.Equal(new ushort[] { 0x0001, 0x0002 }, snap);
+
+        // Muter le tableau rendu ne doit PAS toucher l'etat interne (ce n'est pas la reference).
+        snap[0] = 0xDEAD;
+        Assert.Equal(new ushort[] { 0x0001, 0x0002 }, store.SnapshotReturns());
+    }
+
+    // =====================================================================
     // 4. Round-trip fidele wire <-> store
     // =====================================================================
 

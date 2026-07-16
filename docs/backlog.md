@@ -49,6 +49,15 @@ Brief : `docs/sprints/sprint_01/overview.md`
   - ✅ `demo_sprint_02.ps1` (démo visuelle guidée, pré-vol port 502) → validation visuelle Nico. — `d4b2d71`
 - ⏳ Reste éventuel : diff canonique Python↔C#, polish visuel, IHM debug minimale.
 
+## Phase 1ter — Durcir le démonstrateur 🔄
+> Brief : `docs/sprints/sprint_03/overview.md`. Robustesse (échecs bruyants) + traçabilité de
+> la chaîne de commande **par élément 3D**, avant le M580 réel. Lecture seule, pivot non touché.
+- 🔄 Sprint 3 : 3 sous-sprints séquentiels (orchestrés par `/sprint open 03`)
+  - [~] S3.1 — Backend santé (`ModbusServer` : bind visible + repro D-013, `IsListening`,
+    `LastClientWriteUtc`, `SnapshotReturns`) — headless/xUnit
+  - [~] S3.2 — Santé visible (bandeau bind + panneau santé ; **solde D-013**) — visuel
+  - [~] S3.3 — Chaîne par élément + coloration + `demo_sprint_03.ps1` — visuel/observable
+
 ## Phase 4 — Intégration M580 réelle ⏳
 - ⏳ Sprint 4 : campagne avec le programme PLC de l'automaticien, mesure de latence
   scan↔simulation, IHM minimale (état des mots, forçage basique de debug)
