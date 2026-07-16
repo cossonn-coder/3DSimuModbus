@@ -60,6 +60,14 @@ public partial class CarrouselScene : Node3D
     private CarrouselSimulation _sim = null!;
     private ModbusServer _server = null!;
 
+    // --- Etat de sante du serveur (S3.2) -------------------------------------------------------
+    // Vrai si _server.Start() a echoue (port 502 deja occupe). Dans ce cas on N'ENTRE PAS dans la
+    // boucle Modbus (_PhysicsProcess sort tot) : inutile d'avancer la simulation puisque personne
+    // ne lira les retours, et la maquette figee est desormais EXPLIQUEE par le bandeau rouge du
+    // HealthHud (solde D-013). Le message porte le texte de la ModbusServerException pour le bandeau.
+    private bool _serverFailed;
+    private string _serverFailureMessage = "";
+
     // Accumulateur du pas fixe (voir _PhysicsProcess). En secondes.
     private double _accumulator;
 
@@ -160,7 +168,32 @@ public partial class CarrouselScene : Node3D
 
         IPAddress bind = BindLoopback ? IPAddress.Loopback : IPAddress.Any;
         _server = new ModbusServer(pivot, _store, bind);
-        _server.Start();
+
+        // Demarrage ENVELOPPE (S3.2) : un echec de bind (port occupe) ne doit plus planter la scene
+        // en silence (dette D-013). On catche specifiquement ModbusServerException, on memorise
+        // l'etat + le message, et on journalise. La scene reste construite (geometrie visible) et le
+        // bandeau rouge du HealthHud dira pourquoi elle ne bouge pas. Aucun autre type d'exception
+        // n'est avale : une PivotException ou une erreur systeme doit continuer de remonter.
+        try
+        {
+            _server.Start();
+        }
+        catch (ModbusServerException ex)
+        {
+            _serverFailed = true;
+            _serverFailureMessage = ex.Message;
+            GD.PrintErr($"[carrousel] serveur Modbus KO : {ex.Message}");
+        }
+
+        // --- Overlay sante (S3.2) : HealthHud cree par code, meme patron qu'AddPresentation --------
+        // Lecture seule : il recoit des references (serveur + simulation) et se rafraichit tout seul
+        // a basse cadence sur le thread principal Godot. AddChild declenche son _Ready de facon
+        // synchrone -> ses noeuds existent quand on appelle Configure/ShowBindFailure juste apres.
+        var hud = new HealthHud();
+        AddChild(hud);
+        hud.Configure(_server, _sim, pivot.Port);
+        if (_serverFailed)
+            hud.ShowBindFailure(_serverFailureMessage);
     }
 
     /// <summary>
@@ -176,6 +209,12 @@ public partial class CarrouselScene : Node3D
     /// </summary>
     public override void _PhysicsProcess(double delta)
     {
+        // Garde S3.2 : si le serveur n'a pas pu ecouter (bind echoue), la chaine Modbus est morte.
+        // On ne fait pas StepSim (rien a publier, aucun client) ; la maquette reste figee, ce qui est
+        // desormais EXPLIQUE par le bandeau rouge du HealthHud (qui, lui, tourne sur son propre _Process).
+        if (_serverFailed)
+            return;
+
         _accumulator = System.Math.Min(_accumulator + delta, MaxCatchup * _periodS);
 
         int ticks = 0;
@@ -251,7 +290,12 @@ public partial class CarrouselScene : Node3D
     /// </summary>
     public override void _ExitTree()
     {
-        _server.Dispose();
+        // Sur echec de bind (S3.2), le serveur FluentModbus n'a jamais demarre (le pre-vol a leve
+        // avant Start) : le pre-vol TcpListener a deja ete relache dans son finally, il n'y a donc
+        // aucun port a rendre, et tenter d'arreter un serveur non demarre serait inutile voire fragile.
+        // On ne dispose donc que le serveur reellement lance.
+        if (!_serverFailed)
+            _server.Dispose();
     }
 
     /// <summary>
