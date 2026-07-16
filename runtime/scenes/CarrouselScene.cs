@@ -108,16 +108,24 @@ public partial class CarrouselScene : Node3D
     private Vector3 _palletCenter;
     private float _palletY;
 
-    // --- Chaine de commande par element (S3.3) : etiquettes 3D + coloration d'etat ------------
-    // Etiquettes « cmd -> physique -> ret » ancrees sur chaque element (helper de glue pure).
-    // Nourries a BASSE cadence (~6 Hz) par _Process, jamais a 60 Hz : le texte ne doit pas
-    // scintiller. Le decodage pivot (adresses %MW) vit entierement dans ce helper — pas ici.
-    private CommandChainLabels _labels = null!;
-    private double _labelAccumulator;
-    private const double LabelRefreshPeriodS = 0.15;   // ~6-7 Hz : lisible, sans scintillement
+    // --- Panneau lateral des elements (S4.2) : mapping decode + coloration d'etat -------------
+    // Panneau 2D ancre listant chaque composant du pivot (5 colonnes, adresses %MW decodees) ;
+    // remplace les etiquettes 3D flottantes (rejet UX du sprint 3). Nourri a BASSE cadence
+    // (~6 Hz) par _Process, jamais a 60 Hz : le texte ne doit pas scintiller. Le decodage pivot
+    // (adresses %MW + booleens de retour) vit entierement dans le panneau — pas ici.
+    private ElementPanel _panel = null!;
+    private double _panelAccumulator;
+    private const double PanelRefreshPeriodS = 0.15;   // ~6-7 Hz : lisible, sans scintillement
 
-    // Ancres (noeuds 3D) au-dessus desquels poser les etiquettes, capturees au build pour ne
-    // faire AUCUN GetNode par rafraichissement. Anneau du convoyeur, verins, fenetres capteurs.
+    // --- Surbrillance croisee (S4.2) : id composant -> materiau d'etat a « allumer » ----------
+    // Source unique de verite du survol : SetHover eclaire l'EMISSION du materiau (canal distinct
+    // de l'albedo, D-arch : l'etat/albedo n'est jamais perdu) et surligne la ligne du panneau.
+    // Rempli additivement dans les builders (anneau/verins/capteurs), materiaux DEJA captures.
+    private readonly System.Collections.Generic.Dictionary<string, StandardMaterial3D> _highlightMat = new();
+
+    // Noeuds 3D des elements, captures au build pour ne faire AUCUN GetNode a l'execution :
+    // anneau du convoyeur, verins, fenetres capteurs. Conserves pour le picking 3D de S4.3
+    // (Area3D par element) ; en S4.2 la surbrillance passe par les materiaux (_highlightMat).
     private Node3D _ringNode = null!;
     private Node3D _cyl1Node = null!;
     private Node3D _cyl2Node = null!;
@@ -141,6 +149,12 @@ public partial class CarrouselScene : Node3D
     private static readonly Color RingActive = new(0.30f, 0.72f, 0.38f);  // vert : convoyeur en marche
     private static readonly Color SensorRest = new(0.20f, 0.60f, 1.00f, 0.35f);
     private static readonly Color SensorActive = new(0.30f, 1.00f, 0.45f, 0.70f);   // vert allume : palette presente
+
+    // Surbrillance de survol (S4.2) : couleur/energie EMISSION (mobilier de rendu hors pivot). Le
+    // canal emission « ajoute » de la lumiere par-dessus l'albedo sans l'ecraser (D-arch) : au retour
+    // du survol on coupe EmissionEnabled et l'element retrouve exactement sa couleur d'etat.
+    private static readonly Color HighlightEmission = new(0.55f, 0.75f, 1.00f);   // halo bleu clair
+    private const float HighlightEnergy = 0.65f;
 
     public override void _Ready()
     {
@@ -229,13 +243,46 @@ public partial class CarrouselScene : Node3D
         if (_serverFailed)
             hud.ShowBindFailure(_serverFailureMessage);
 
-        // --- Chaine de commande par element (S3.3) : etiquettes 3D « cmd -> physique -> ret » ----
-        // Construites APRES la geometrie (les ancres/materiaux sont capturees) et apres le pivot.
-        // Lecture seule : le helper resout les adresses %MW du pivot et pose un Label3D billboard
-        // sur chaque element ; _Process les nourrit ensuite a basse cadence (avec la coloration).
-        _labels = new CommandChainLabels();
-        _labels.Build(pivot, _ringNode, _cyl1Node, _cyl2Node, _sensor1Node, _sensor2Node);
+        // --- Panneau lateral des elements (S4.2) : mapping %MW decode + hub de coloration ---------
+        // Construit APRES la geometrie (les materiaux d'etat sont captures) et le pivot. Lecture
+        // seule : le panneau resout les adresses %MW et se peuple depuis components[] ; _Process le
+        // nourrit ensuite a basse cadence. Deux delegues le relient a la scene sans le rendre
+        // specifique au carrousel : SetHover (survol ligne -> element 3D) et un routeur de position
+        // de verin par id (la sim n'expose Cylinder1/2 que par accesseurs fixes, la scene sait router).
+        _panel = new ElementPanel();
+        AddChild(_panel);
+        _panel.Build(pivot, SetHover, CylinderPositionById);
     }
+
+    /// <summary>
+    /// Source UNIQUE de verite de la surbrillance croisee (S4.2). Appelee quand la souris entre/sort
+    /// d'une ligne du panneau (sens ligne -> 3D) ; S4.3 branchera une 2e source (picking 3D -> ligne)
+    /// sur ce meme point. Deux effets : (a) allume l'EMISSION du materiau d'etat de l'element — canal
+    /// DISTINCT de l'albedo (D-arch), donc la couleur d'etat n'est jamais perdue ; (b) surligne la
+    /// ligne correspondante du panneau. Aucun effet si l'id n'a pas de materiau route (defensif).
+    /// </summary>
+    private void SetHover(string id, bool on)
+    {
+        if (_highlightMat.TryGetValue(id, out var mat))
+        {
+            mat.EmissionEnabled = on;
+            mat.Emission = HighlightEmission;
+            mat.EmissionEnergyMultiplier = HighlightEnergy;
+        }
+        _panel.HighlightRow(id, on);
+    }
+
+    /// <summary>
+    /// Position 0..1 d'un verin par son id pivot, pour le panneau (qui reste generique : il demande
+    /// « la position de cet id » sans coder « 2 verins »). Le routage id -> Cylinder1/2 vit ici, ou
+    /// il est deja connu (memes id que BuildCylinder). Id non verin => 0 (non affiche par le panneau).
+    /// </summary>
+    private double CylinderPositionById(string id) => id switch
+    {
+        "cylinder_1" => _sim.Cylinder1.Position,
+        "cylinder_2" => _sim.Cylinder2.Position,
+        _ => 0.0,
+    };
 
     /// <summary>
     /// Coeur temps reel de la scene-hote : a chaque frame physique, on avance la simulation par pas
@@ -271,37 +318,38 @@ public partial class CarrouselScene : Node3D
     }
 
     /// <summary>
-    /// Rafraichissement VISUEL a BASSE cadence (~6 Hz) de la chaine de commande par element (S3.3) :
-    /// texte des etiquettes + coloration d'etat. Distinct de _PhysicsProcess (60 Hz, deterministe) :
-    /// le texte et les couleurs n'ont pas besoin du 60 Hz et scintilleraient a ce rythme. Lecture
-    /// seule stricte (frontiere Arch A) : on ne lit que des COPIES verrouillees (SnapshotCommands /
-    /// SnapshotReturns) et l'etat deja publie par la simulation ; aucune ecriture cmd, aucun acces
-    /// au datastore interne. On rafraichit meme sur echec de bind : les etiquettes montrent alors un
-    /// etat au repos (cmd=0), coherent avec le bandeau rouge du HealthHud (la maquette est figee).
+    /// Rafraichissement VISUEL a BASSE cadence (~6 Hz) du panneau lateral (S4.2) : cellules du
+    /// tableau + coloration d'etat. Distinct de _PhysicsProcess (60 Hz, deterministe) : le texte et
+    /// les couleurs n'ont pas besoin du 60 Hz et scintilleraient a ce rythme. Lecture seule stricte
+    /// (frontiere Arch A) : on ne lit que des COPIES verrouillees (SnapshotCommands / SnapshotReturns)
+    /// et l'etat deja publie par la simulation ; aucune ecriture cmd, aucun acces au datastore
+    /// interne. On rafraichit meme sur echec de bind : le panneau montre alors un etat au repos
+    /// (cmd=0), coherent avec le bandeau rouge du HealthHud (la maquette est figee).
     /// </summary>
     public override void _Process(double delta)
     {
-        _labelAccumulator += delta;
-        if (_labelAccumulator < LabelRefreshPeriodS)
+        _panelAccumulator += delta;
+        if (_panelAccumulator < PanelRefreshPeriodS)
             return;
-        _labelAccumulator = 0;
+        _panelAccumulator = 0;
 
-        // Snapshots atomiques des deux zones (thread principal) : la meme photo alimente le texte
+        // Snapshots atomiques des deux zones (thread principal) : la meme photo alimente le tableau
         // ET la coloration, pour un affichage coherent d'un rafraichissement a l'autre.
         ushort[] cmd = _store.SnapshotCommands();
         ushort[] ret = _store.SnapshotReturns();
-        _labels.Update(cmd, ret, _sim);
+        _panel.Update(cmd, ret);
 
         // Coloration d'etat (reutilisation des materiaux deja poses, on ne touche que AlbedoColor) :
         //   - tige : degrade repos->actif selon la course reelle (0..1) du verin ;
         //   - anneau : teinte « en marche » quand le contact KM1_AUX est ferme ;
         //   - fenetre capteur : « allumee » quand son bit de presence Bi vaut 1.
-        // Les booleens KM1_AUX / B1 / B2 sont deja decodes par _labels (decodage pivot centralise).
+        // Les booleens KM1_AUX / B1 / B2 sont decodes par le panneau (hub de decodage pivot).
+        // L'albedo est un canal DISTINCT de l'emission (survol, D-arch) : les deux coexistent.
         _rodMat1.AlbedoColor = RodRest.Lerp(RodActive, (float)_sim.Cylinder1.Position);
         _rodMat2.AlbedoColor = RodRest.Lerp(RodActive, (float)_sim.Cylinder2.Position);
-        _ringMat.AlbedoColor = _labels.Km1Aux ? RingActive : RingRest;
-        _sensorMat1.AlbedoColor = _labels.B1Present ? SensorActive : SensorRest;
-        _sensorMat2.AlbedoColor = _labels.B2Present ? SensorActive : SensorRest;
+        _ringMat.AlbedoColor = _panel.Km1Aux ? RingActive : RingRest;
+        _sensorMat1.AlbedoColor = _panel.B1Present ? SensorActive : SensorRest;
+        _sensorMat2.AlbedoColor = _panel.B2Present ? SensorActive : SensorRest;
     }
 
     /// <summary>
@@ -432,6 +480,7 @@ public partial class CarrouselScene : Node3D
         // le contact KM1_AUX est ferme). On reutilise le materiau deja pose, on ne recree rien.
         _ringNode = ring;
         _ringMat = (StandardMaterial3D)outer.Material;
+        _highlightMat[conveyor.Id] = _ringMat;   // S4.2 : materiau a « allumer » (emission) au survol
 
         return center.Y + height / 2f;
     }
@@ -485,6 +534,9 @@ public partial class CarrouselScene : Node3D
             _rod2 = rod; _restY2 = rod.Position.Y; _stroke2 = stroke;
             _cyl2Node = node; _rodMat2 = (StandardMaterial3D)rod.MaterialOverride;
         }
+
+        // S4.2 : materiau de la tige = cible d'emission au survol (routage par id, comme ci-dessus).
+        _highlightMat[cyl.Id] = (StandardMaterial3D)rod.MaterialOverride;
     }
 
     /// <summary>Palette : boite posee sur l'anneau, orientee sur le rayon (alignement cosmetique).</summary>
@@ -539,6 +591,9 @@ public partial class CarrouselScene : Node3D
         {
             _sensor2Node = window; _sensorMat2 = (StandardMaterial3D)window.MaterialOverride;
         }
+
+        // S4.2 : materiau de la fenetre capteur = cible d'emission au survol (routage par id).
+        _highlightMat[sensor.Id] = (StandardMaterial3D)window.MaterialOverride;
     }
 
     // --- Helpers -------------------------------------------------------------------------------

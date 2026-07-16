@@ -41,6 +41,15 @@ if (-not $census) {
     exit 1
 }
 
+# S4.2 : le panneau lateral cree une ligne par composant du pivot (5 : convoyeur + 2 verins +
+# 2 capteurs). On verifie la trace deterministe imprimee par ElementPanel.Build (peuplement pivot).
+$expectedPanel = '[panel] rows=5'
+$panel = $output | Where-Object { $_ -match [regex]::Escape($expectedPanel) }
+if (-not $panel) {
+    Write-Error "SMOKE KO : trace panneau attendue absente ('$expectedPanel')"
+    exit 1
+}
+
 # Filet defensif : aucune erreur de script Godot ne doit apparaitre dans la sortie.
 $errors = $output | Where-Object { $_ -match 'SCRIPT ERROR|Unhandled exception|ERROR:' }
 if ($errors) {

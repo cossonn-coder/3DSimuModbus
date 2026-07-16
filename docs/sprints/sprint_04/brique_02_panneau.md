@@ -133,17 +133,19 @@ du pivot en pratique). Une ligne par composant. **Aucune supposition** sur le no
 
 ## Definition of Done (cochable)
 
-- [ ] `ElementPanel.cs` créé : panneau **ancré**, **une ligne par composant du pivot**, 5 colonnes,
-      adresses %MW **décodées** (jamais en dur), état physique correct par type.
-- [ ] `CommandChainLabels.cs` **supprimé** ; plus aucun `Label3D` de chaîne dans la scène.
-- [ ] **Coloration d'état préservée** (anneau/tige/fenêtres suivent l'état), alimentée par le panneau.
-- [ ] Survol d'une ligne → l'élément 3D correspondant **s'éclaire** (émission), et se **rééteint** en
-      sortie de survol, **sans perdre** sa couleur d'état.
-- [ ] `SetHover` centralise la surbrillance (émission + `HighlightRow`) ; `_highlightMat` (id→matériau)
-      construit additivement dans les builders.
-- [ ] Build Godot **0 erreur** ; banc **inchangé** : `dotnet test` = **95**, 4 pytest verts.
-- [ ] Smoke headless : recensement inchangé **+** trace du nombre de lignes panneau = nombre de
-      composants du pivot (ex. `panel_rows=5`).
+- [x] `ElementPanel.cs` créé : panneau **ancré** (preset RightWide + OffsetLeft), **une ligne par
+      composant du pivot** (itère `Components.Values`), 5 colonnes, adresses %MW **décodées** via
+      `Signal.AbsWord/.Bit` (jamais en dur), état physique dispatché par `Component.Type`.
+- [x] `CommandChainLabels.cs` **supprimé** (+ `.cs.uid` orphelin) ; plus aucun `Label3D` de chaîne.
+- [x] **Coloration d'état préservée** (anneau/tige/fenêtres), alimentée par `_panel.Km1Aux/B1Present/B2Present`.
+- [x] Survol d'une ligne → `SetHover` allume l'**émission** du matériau d'état (canal distinct de
+      l'albédo, D-arch) et la rééteint en sortie, **sans perdre** la couleur d'état. *(rendu visuel à
+      valider par Nico en F5.)*
+- [x] `SetHover` centralise la surbrillance (émission + `HighlightRow`) ; `_highlightMat` (id→matériau)
+      construit additivement dans `BuildConveyor`/`BuildCylinder`/`BuildSensorWindow`.
+- [x] Build Godot **0 erreur** (0 avertissement) ; banc **inchangé** : `dotnet test` = **95** (89+6).
+- [x] Smoke headless : recensement inchangé (`ring=1 cylinders=2 pallets=3 sensors=2`) **+** trace
+      `[panel] rows=5` = nombre de composants (probe ajoutée à `smoke_scene.ps1`).
 
 ## Vérif autosuffisante
 
