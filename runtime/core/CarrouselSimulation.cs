@@ -39,210 +39,210 @@ namespace CarrouselCore;
 /// </summary>
 public sealed class CarrouselSimulation
 {
-    // Regroupe un verin (etat physique) avec les trois Signal qui le relient au bus : c'est le
-    // « cablage » entre un modele pur et ses adresses Modbus, resolu une fois au constructeur.
-    private sealed class CylinderUnit
-    {
-        public CylinderState State { get; }
-        public Signal CmdExtend { get; }
-        public Signal RetRetracted { get; }
-        public Signal RetExtended { get; }
+	// Regroupe un verin (etat physique) avec les trois Signal qui le relient au bus : c'est le
+	// « cablage » entre un modele pur et ses adresses Modbus, resolu une fois au constructeur.
+	private sealed class CylinderUnit
+	{
+		public CylinderState State { get; }
+		public Signal CmdExtend { get; }
+		public Signal RetRetracted { get; }
+		public Signal RetExtended { get; }
 
-        // Angle du poste que ce verin bloque (deg). Quand le verin est ENGAGE, ce poste devient un
-        // obstacle fixe pour les palettes (brique 4b) : c'est ce que Tick transmet a PalletSet.
-        public double StationAngleDeg { get; }
+		// Angle du poste que ce verin bloque (deg). Quand le verin est ENGAGE, ce poste devient un
+		// obstacle fixe pour les palettes (brique 4b) : c'est ce que Tick transmet a PalletSet.
+		public double StationAngleDeg { get; }
 
-        private CylinderUnit(CylinderState state, Signal cmdExtend, Signal retRetracted, Signal retExtended, double stationAngleDeg)
-        {
-            State = state;
-            CmdExtend = cmdExtend;
-            RetRetracted = retRetracted;
-            RetExtended = retExtended;
-            StationAngleDeg = stationAngleDeg;
-        }
+		private CylinderUnit(CylinderState state, Signal cmdExtend, Signal retRetracted, Signal retExtended, double stationAngleDeg)
+		{
+			State = state;
+			CmdExtend = cmdExtend;
+			RetRetracted = retRetracted;
+			RetExtended = retExtended;
+			StationAngleDeg = stationAngleDeg;
+		}
 
-        public static CylinderUnit FromPivot(PivotModel pivot, string compId)
-        {
-            var c = pivot.GetComponent(compId);
-            // Les temps du pivot sont en MILLISECONDES ; les modeles raisonnent en SECONDES
-            // (comme `dt`). Conversion unique ici, jamais de melange d'unites plus loin.
-            var state = new CylinderState(
-                travelTimeS: c.GetParam("travel_time_ms") / 1000.0,
-                retractedThreshold: c.GetParam("retracted_threshold"),
-                extendedThreshold: c.GetParam("extended_threshold"),
-                blockThreshold: c.GetParam("block_threshold"));
+		public static CylinderUnit FromPivot(PivotModel pivot, string compId)
+		{
+			var c = pivot.GetComponent(compId);
+			// Les temps du pivot sont en MILLISECONDES ; les modeles raisonnent en SECONDES
+			// (comme `dt`). Conversion unique ici, jamais de melange d'unites plus loin.
+			var state = new CylinderState(
+				travelTimeS: c.GetParam("travel_time_ms") / 1000.0,
+				retractedThreshold: c.GetParam("retracted_threshold"),
+				extendedThreshold: c.GetParam("extended_threshold"),
+				blockThreshold: c.GetParam("block_threshold"));
 
-            return new CylinderUnit(
-                state,
-                pivot.GetSignal(compId, "cmd_extend"),
-                pivot.GetSignal(compId, "ret_retracted"),
-                pivot.GetSignal(compId, "ret_extended"),
-                c.GetParam("station_angle_deg"));
-        }
-    }
+			return new CylinderUnit(
+				state,
+				pivot.GetSignal(compId, "cmd_extend"),
+				pivot.GetSignal(compId, "ret_retracted"),
+				pivot.GetSignal(compId, "ret_extended"),
+				c.GetParam("station_angle_deg"));
+		}
+	}
 
-    // Regroupe un capteur de presence (B1/B2) avec le poste qu'il surveille et sa fenetre : c'est
-    // le « cablage » entre PalletSet.PresentAt et l'adresse du bit ret_active, resolu au constructeur.
-    private sealed class PresenceUnit
-    {
-        public Signal RetActive { get; }
-        public double StationAngleDeg { get; }
-        public double WindowDeg { get; }
+	// Regroupe un capteur de presence (B1/B2) avec le poste qu'il surveille et sa fenetre : c'est
+	// le « cablage » entre PalletSet.PresentAt et l'adresse du bit ret_active, resolu au constructeur.
+	private sealed class PresenceUnit
+	{
+		public Signal RetActive { get; }
+		public double StationAngleDeg { get; }
+		public double WindowDeg { get; }
 
-        private PresenceUnit(Signal retActive, double stationAngleDeg, double windowDeg)
-        {
-            RetActive = retActive;
-            StationAngleDeg = stationAngleDeg;
-            WindowDeg = windowDeg;
-        }
+		private PresenceUnit(Signal retActive, double stationAngleDeg, double windowDeg)
+		{
+			RetActive = retActive;
+			StationAngleDeg = stationAngleDeg;
+			WindowDeg = windowDeg;
+		}
 
-        public static PresenceUnit FromPivot(PivotModel pivot, string compId)
-        {
-            var c = pivot.GetComponent(compId);
-            return new PresenceUnit(
-                pivot.GetSignal(compId, "ret_active"),
-                c.GetParam("station_angle_deg"),
-                c.GetParam("window_deg"));
-        }
-    }
+		public static PresenceUnit FromPivot(PivotModel pivot, string compId)
+		{
+			var c = pivot.GetComponent(compId);
+			return new PresenceUnit(
+				pivot.GetSignal(compId, "ret_active"),
+				c.GetParam("station_angle_deg"),
+				c.GetParam("window_deg"));
+		}
+	}
 
-    private readonly Signal _heartbeatSig;
+	private readonly Signal _heartbeatSig;
 
-    private readonly Signal _cmdRun;
-    private readonly Signal _km1Aux;
-    private readonly ConveyorState _conveyor;
+	private readonly Signal _cmdRun;
+	private readonly Signal _km1Aux;
+	private readonly ConveyorState _conveyor;
 
-    private readonly CylinderUnit _cyl1;
-    private readonly CylinderUnit _cyl2;
+	private readonly CylinderUnit _cyl1;
+	private readonly CylinderUnit _cyl2;
 
-    // Palettes (brique 4b) : modele pur anime chaque tick. Sa vitesse est celle du convoyeur
-    // (KM1.speed_deg_per_s) ; ses capteurs de presence pilotent B1/B2.
-    private readonly PalletSet _pallets;
-    private readonly double _palletSpeedDegPerS;
-    private readonly PresenceUnit _b1;
-    private readonly PresenceUnit _b2;
+	// Palettes (brique 4b) : modele pur anime chaque tick. Sa vitesse est celle du convoyeur
+	// (KM1.speed_deg_per_s) ; ses capteurs de presence pilotent B1/B2.
+	private readonly PalletSet _pallets;
+	private readonly double _palletSpeedDegPerS;
+	private readonly PresenceUnit _b1;
+	private readonly PresenceUnit _b2;
 
-    // Compteur heartbeat : ushort => rollover a 65535 -> 0 automatique (spec : rollover libre).
-    private ushort _heartbeat;
+	// Compteur heartbeat : ushort => rollover a 65535 -> 0 automatique (spec : rollover libre).
+	private ushort _heartbeat;
 
-    /// <summary>
-    /// Resout les signaux et params depuis le pivot, et construit les modeles purs. Aucune I/O,
-    /// aucun tick : l'etat cinematique demarre au repos (verins rentres, convoyeur arrete).
-    /// </summary>
-    public CarrouselSimulation(PivotModel pivot)
-    {
-        ArgumentNullException.ThrowIfNull(pivot);
+	/// <summary>
+	/// Resout les signaux et params depuis le pivot, et construit les modeles purs. Aucune I/O,
+	/// aucun tick : l'etat cinematique demarre au repos (verins rentres, convoyeur arrete).
+	/// </summary>
+	public CarrouselSimulation(PivotModel pivot)
+	{
+		ArgumentNullException.ThrowIfNull(pivot);
 
-        _heartbeatSig = pivot.Heartbeat;
+		_heartbeatSig = pivot.Heartbeat;
 
-        var km1 = pivot.GetComponent("KM1");
-        _cmdRun = pivot.GetSignal("KM1", "cmd_run");
-        _km1Aux = pivot.GetSignal("KM1", "ret_running");
-        _conveyor = new ConveyorState(feedbackDelayS: km1.GetParam("feedback_delay_ms") / 1000.0);
+		var km1 = pivot.GetComponent("KM1");
+		_cmdRun = pivot.GetSignal("KM1", "cmd_run");
+		_km1Aux = pivot.GetSignal("KM1", "ret_running");
+		_conveyor = new ConveyorState(feedbackDelayS: km1.GetParam("feedback_delay_ms") / 1000.0);
 
-        _cyl1 = CylinderUnit.FromPivot(pivot, "cylinder_1");
-        _cyl2 = CylinderUnit.FromPivot(pivot, "cylinder_2");
+		_cyl1 = CylinderUnit.FromPivot(pivot, "cylinder_1");
+		_cyl2 = CylinderUnit.FromPivot(pivot, "cylinder_2");
 
-        // Palettes : positions/ecart/sens viennent de kinematics ; la vitesse est celle du convoyeur.
-        var k = pivot.Kinematics;
-        _pallets = new PalletSet(k.InitialPositionsDeg, k.MinGapDeg, k.Ccw);
-        _palletSpeedDegPerS = km1.GetParam("speed_deg_per_s");
-        _b1 = PresenceUnit.FromPivot(pivot, "presence_station_1");
-        _b2 = PresenceUnit.FromPivot(pivot, "presence_station_2");
-    }
+		// Palettes : positions/ecart/sens viennent de kinematics ; la vitesse est celle du convoyeur.
+		var k = pivot.Kinematics;
+		_pallets = new PalletSet(k.InitialPositionsDeg, k.MinGapDeg, k.Ccw);
+		_palletSpeedDegPerS = km1.GetParam("speed_deg_per_s");
+		_b1 = PresenceUnit.FromPivot(pivot, "presence_station_1");
+		_b2 = PresenceUnit.FromPivot(pivot, "presence_station_2");
+	}
 
-    // --- Accces lecture seule a l'etat interne (pour la 3D brique 5 et les tests) ---
-    // On expose les modeles : la 3D lira Position, les tests liront les seuils. Par convention
-    // les appelants NE font que lire (ne rappellent pas Advance) : la seule horloge est le Tick.
+	// --- Accces lecture seule a l'etat interne (pour la 3D brique 5 et les tests) ---
+	// On expose les modeles : la 3D lira Position, les tests liront les seuils. Par convention
+	// les appelants NE font que lire (ne rappellent pas Advance) : la seule horloge est le Tick.
 
-    /// <summary>Verin YV1 (poste 90°).</summary>
-    public CylinderState Cylinder1 => _cyl1.State;
+	/// <summary>Verin YV1 (poste 90°).</summary>
+	public CylinderState Cylinder1 => _cyl1.State;
 
-    /// <summary>Verin YV2 (poste 270°).</summary>
-    public CylinderState Cylinder2 => _cyl2.State;
+	/// <summary>Verin YV2 (poste 270°).</summary>
+	public CylinderState Cylinder2 => _cyl2.State;
 
-    /// <summary>Retour de marche du convoyeur (contact KM1_AUX).</summary>
-    public ConveyorState Conveyor => _conveyor;
+	/// <summary>Retour de marche du convoyeur (contact KM1_AUX).</summary>
+	public ConveyorState Conveyor => _conveyor;
 
-    /// <summary>Etat des palettes (positions angulaires) — lu par la 3D (brique 5) et les tests.</summary>
-    public PalletSet Pallets => _pallets;
+	/// <summary>Etat des palettes (positions angulaires) — lu par la 3D (brique 5) et les tests.</summary>
+	public PalletSet Pallets => _pallets;
 
-    /// <summary>Valeur courante du compteur heartbeat (dernier publie).</summary>
-    public ushort Heartbeat => _heartbeat;
+	/// <summary>Valeur courante du compteur heartbeat (dernier publie).</summary>
+	public ushort Heartbeat => _heartbeat;
 
-    /// <summary>
-    /// Un pas de simulation : snapshot cmd -> avance la cinematique de <paramref name="dtSeconds"/>
-    /// -> incremente le heartbeat -> reconstruit et publie la zone ret.
-    /// </summary>
-    public void Tick(ModbusDataStore store, double dtSeconds)
-    {
-        ArgumentNullException.ThrowIfNull(store);
+	/// <summary>
+	/// Un pas de simulation : snapshot cmd -> avance la cinematique de <paramref name="dtSeconds"/>
+	/// -> incremente le heartbeat -> reconstruit et publie la zone ret.
+	/// </summary>
+	public void Tick(ModbusDataStore store, double dtSeconds)
+	{
+		ArgumentNullException.ThrowIfNull(store);
 
-        // 1. Snapshot des commandes en debut de tick : la sim travaille sur une photo figee,
-        //    insensible a une ecriture PLC qui arriverait en cours de calcul (coherence intra-scan).
-        ushort[] cmd = store.SnapshotCommands();
+		// 1. Snapshot des commandes en debut de tick : la sim travaille sur une photo figee,
+		//    insensible a une ecriture PLC qui arriverait en cours de calcul (coherence intra-scan).
+		ushort[] cmd = store.SnapshotCommands();
 
-        // 2. Decodage des bits de commande via les Signal (offset relatif + masque). Jamais
-        //    d'adresse ni de masque en dur : tout passe par le pivot (decision D-b).
-        bool run = _cmdRun.ReadBit(cmd[_cmdRun.WordRel]);
-        bool extend1 = _cyl1.CmdExtend.ReadBit(cmd[_cyl1.CmdExtend.WordRel]);
-        bool extend2 = _cyl2.CmdExtend.ReadBit(cmd[_cyl2.CmdExtend.WordRel]);
+		// 2. Decodage des bits de commande via les Signal (offset relatif + masque). Jamais
+		//    d'adresse ni de masque en dur : tout passe par le pivot (decision D-b).
+		bool run = _cmdRun.ReadBit(cmd[_cmdRun.WordRel]);
+		bool extend1 = _cyl1.CmdExtend.ReadBit(cmd[_cyl1.CmdExtend.WordRel]);
+		bool extend2 = _cyl2.CmdExtend.ReadBit(cmd[_cyl2.CmdExtend.WordRel]);
 
-        // 3. Avancement de la cinematique scriptee de dt (chaque modele est autonome).
-        _conveyor.Advance(dtSeconds, run);
-        _cyl1.State.Advance(dtSeconds, extend1);
-        _cyl2.State.Advance(dtSeconds, extend2);
+		// 3. Avancement de la cinematique scriptee de dt (chaque modele est autonome).
+		_conveyor.Advance(dtSeconds, run);
+		_cyl1.State.Advance(dtSeconds, extend1);
+		_cyl2.State.Advance(dtSeconds, extend2);
 
-        // 3bis. Palettes (brique 4b) : un verin ENGAGE (position > block_threshold) transforme son
-        //       poste en obstacle fixe. On collecte les postes bloques APRES l'avance des verins
-        //       (etat courant), puis on avance les palettes ; leur rotation suit le convoyeur REEL
-        //       (IsRunning = KM1_AUX), pas la commande brute, coherent avec le comportement physique.
-        double[] blocked = CollectBlockedStations();
-        _pallets.Advance(dtSeconds, _conveyor.IsRunning, _palletSpeedDegPerS, blocked);
+		// 3bis. Palettes (brique 4b) : un verin ENGAGE (position > block_threshold) transforme son
+		//       poste en obstacle fixe. On collecte les postes bloques APRES l'avance des verins
+		//       (etat courant), puis on avance les palettes ; leur rotation suit le convoyeur REEL
+		//       (IsRunning = KM1_AUX), pas la commande brute, coherent avec le comportement physique.
+		double[] blocked = CollectBlockedStations();
+		_pallets.Advance(dtSeconds, _conveyor.IsRunning, _palletSpeedDegPerS, blocked);
 
-        // 4. Heartbeat : +1 par tick, rollover ushort naturel (preuve de vie pour le PLC).
-        _heartbeat++;
+		// 4. Heartbeat : +1 par tick, rollover ushort naturel (preuve de vie pour le PLC).
+		_heartbeat++;
 
-        // 5. Reconstruction COMPLETE de ret (D-e) : un tableau neuf, tous les bits repositionnes.
-        //    Le heartbeat est un mot ENTIER (word 0) ; les TOR (word 1) sont ecrits bit a bit.
-        ushort[] ret = new ushort[store.ReturnWordCount];
-        ret[_heartbeatSig.WordRel] = _heartbeat;
+		// 5. Reconstruction COMPLETE de ret (D-e) : un tableau neuf, tous les bits repositionnes.
+		//    Le heartbeat est un mot ENTIER (word 0) ; les TOR (word 1) sont ecrits bit a bit.
+		ushort[] ret = new ushort[store.ReturnWordCount];
+		ret[_heartbeatSig.WordRel] = _heartbeat;
 
-        _km1Aux.WriteBit(ref ret[_km1Aux.WordRel], _conveyor.IsRunning);
-        WriteCylinder(ret, _cyl1);
-        WriteCylinder(ret, _cyl2);
+		_km1Aux.WriteBit(ref ret[_km1Aux.WordRel], _conveyor.IsRunning);
+		WriteCylinder(ret, _cyl1);
+		WriteCylinder(ret, _cyl2);
 
-        // B1/B2 (brique 4b) : presence d'une palette dans la fenetre de chaque poste.
-        WritePresence(ret, _b1);
-        WritePresence(ret, _b2);
+		// B1/B2 (brique 4b) : presence d'une palette dans la fenetre de chaque poste.
+		WritePresence(ret, _b1);
+		WritePresence(ret, _b2);
 
-        // 6. Publication d'un bloc en fin de tick : le PLC lira un jeu de retours coherent.
-        store.PublishReturns(ret);
-    }
+		// 6. Publication d'un bloc en fin de tick : le PLC lira un jeu de retours coherent.
+		store.PublishReturns(ret);
+	}
 
-    /// <summary>Encode les deux fins de course d'un verin dans la zone ret.</summary>
-    private static void WriteCylinder(ushort[] ret, CylinderUnit u)
-    {
-        u.RetRetracted.WriteBit(ref ret[u.RetRetracted.WordRel], u.State.IsRetracted);
-        u.RetExtended.WriteBit(ref ret[u.RetExtended.WordRel], u.State.IsExtended);
-    }
+	/// <summary>Encode les deux fins de course d'un verin dans la zone ret.</summary>
+	private static void WriteCylinder(ushort[] ret, CylinderUnit u)
+	{
+		u.RetRetracted.WriteBit(ref ret[u.RetRetracted.WordRel], u.State.IsRetracted);
+		u.RetExtended.WriteBit(ref ret[u.RetExtended.WordRel], u.State.IsExtended);
+	}
 
-    /// <summary>
-    /// Postes actuellement bloques : l'angle de chaque verin ENGAGE (un verin rentre ne bloque rien).
-    /// Ces angles deviennent des obstacles fixes pour <see cref="PalletSet.Advance"/>.
-    /// </summary>
-    private double[] CollectBlockedStations()
-    {
-        var blocked = new List<double>(2);
-        if (_cyl1.State.IsEngaged) blocked.Add(_cyl1.StationAngleDeg);
-        if (_cyl2.State.IsEngaged) blocked.Add(_cyl2.StationAngleDeg);
-        return blocked.ToArray();
-    }
+	/// <summary>
+	/// Postes actuellement bloques : l'angle de chaque verin ENGAGE (un verin rentre ne bloque rien).
+	/// Ces angles deviennent des obstacles fixes pour <see cref="PalletSet.Advance"/>.
+	/// </summary>
+	private double[] CollectBlockedStations()
+	{
+		var blocked = new List<double>(2);
+		if (_cyl1.State.IsEngaged) blocked.Add(_cyl1.StationAngleDeg);
+		if (_cyl2.State.IsEngaged) blocked.Add(_cyl2.StationAngleDeg);
+		return blocked.ToArray();
+	}
 
-    /// <summary>Encode le bit de presence d'un poste (B1/B2) : palette dans la fenetre du capteur.</summary>
-    private void WritePresence(ushort[] ret, PresenceUnit u)
-    {
-        bool present = _pallets.PresentAt(u.StationAngleDeg, u.WindowDeg);
-        u.RetActive.WriteBit(ref ret[u.RetActive.WordRel], present);
-    }
+	/// <summary>Encode le bit de presence d'un poste (B1/B2) : palette dans la fenetre du capteur.</summary>
+	private void WritePresence(ushort[] ret, PresenceUnit u)
+	{
+		bool present = _pallets.PresentAt(u.StationAngleDeg, u.WindowDeg);
+		u.RetActive.WriteBit(ref ret[u.RetActive.WordRel], present);
+	}
 }
