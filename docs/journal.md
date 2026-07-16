@@ -50,6 +50,48 @@ entre chaque. Banc à préserver inchangé (95 + 4 pytest full-chain + build God
 
 ---
 
+## 2026-07-16 — Clôture Sprint 4 : ergonomie livrée (navigation + panneau + surbrillance + plein écran)
+
+**Contexte** : orchestration `/sprint open 04` déroulée en **séquentiel strict autonome** (4 sous-agents
+cold-start, un `/clear` chacun). Objectif : rendre le démonstrateur confortable à manipuler et à lire,
+**générique via le pivot**, en **lecture seule** (aucune écriture `cmd`), pivot inchangé, Arch A intacte,
+boucle à pas fixe (heartbeat 10 Hz) intacte.
+
+**Action (ce qui a été fait)** :
+- **S4.1** (`1912c6b`) — `OrbitCamera.cs` (neuf) : montage gimbal `Node3D`+`Camera3D`, orbite=milieu,
+  pan=Shift+milieu, zoom=molette multiplicatif (∝ distance), pitch clampé [-89°,-5°], distance bornée
+  du rayon, cadrage initial tiré du pivot (`path.center/radius_m`). `project.godot` : Maximized/1080p/
+  MSAA 4×/stretch. F11 = Maximized↔Fullscreen. Conflit souris caméra↔UI réglé par `_UnhandledInput`.
+- **S4.2** (`37b9b7c`) — `ElementPanel.cs` (neuf) : panneau **ancré** 5 colonnes, **peuplé de
+  `Components.Values`** (ordre pivot), adresses **décodées** (`Signal.AbsWord/.Bit`). **Décodage
+  relocalisé** de `CommandChainLabels` (**SUPPRIMÉ**) vers le panneau, qui expose l'état lu par
+  `_Process` → **coloration préservée**. Survol ligne → émission 3D. Position vérin via **délégué**.
+- **S4.3** (`cc8aa9e`) — picking 3D **symétrique** : `PhysicsObjectPicking=true` + `AttachHoverArea`
+  (Area3D + forme approximative par élément) branché sur le **`SetHover` partagé** (2ᵉ source, même
+  rendu). Émission ≠ albédo : couleur d'état jamais perdue.
+- **S4.4** (`e33ed9c`) — `demo_sprint_04.ps1` (neuf) : pré-vol 502 + 5 phases guidées (navigation/
+  panneau/surbrillance) écrivant `cmd` via `io_scanner_sim.py`, rappel D-013. ASCII pur.
+
+**Ce qui a surpris** : (1) le vrai travail de S4.2 n'était pas le panneau mais la **relocalisation du
+décodage** (supprimer `CommandChainLabels` cassait la coloration si on n'y prenait garde). (2) Choix de
+design S4.3 : picking posé **dans les builders sur le nœud local** (plus générique, §0bis) plutôt que via
+les refs prévues par l'amorce → 5 champs de nœuds **vestigiaux** → **dette D-018**. (3) **Piège de
+process** : le sous-agent S4.3 a été **coupé par la limite de session** après le code+banc mais avant sa
+paperasse ; l'orchestrateur a **re-vérifié** (build/banc/smoke verts) et **finalisé la bookkeeping**
+lui-même avant commit, plutôt que de risquer un re-spawn contre la même limite.
+
+**Résultat (banc)** : **inchangé sur tout le sprint** — `dotnet test` = **95** (89 core + 6 serveur),
+build Godot **0 erreur/0 avertissement**, smoke headless `ring=1 cylinders=2 pallets=3 sensors=2` +
+`panel rows=5`. **Zéro modification du core.** Aucun re-figeage (aucune régression). Décisions actées :
+`docs/memory.md` (ligne Sprint 4). Dette née : **D-018** ; **D-015 partie navigation soldée**.
+
+**Suite (validations manuelles Nico, F5 + `demo_sprint_04.ps1`)** : caméra orbite/pan/zoom + F11 ;
+panneau lisible + colonnes animées + coloration d'état conservée ; **surbrillance croisée symétrique**
+ligne↔3D, composition émission/**glass** capteurs. Puis campagne M580 réelle (Phase 4, piste
+indépendante). Détails pédagogiques : `docs/sprints/sprint_04/NOTES.md`.
+
+---
+
 ## 2026-07-16 — Ouverture Sprint 3 : durcir le démonstrateur (robustesse + traçabilité)
 
 **Contexte** : sprints 1 & 2 clos, démonstrateur 3D vivant validé à l'œil. Conception du sprint 3

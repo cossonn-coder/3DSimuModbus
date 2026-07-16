@@ -76,11 +76,19 @@ forme approximative · `GetViewport().PhysicsObjectPicking=true` requis (S4.3) �
 **Inchange sur tout le sprint** : `dotnet test` = **95** + 4 pytest full-chain verts + build Godot 0
 erreur. Zero modif core. Tout re-figeage = **regression**. Smoke headless : `panel_rows` = nb composants.
 
+## ETAT : SPRINT 4 CLOS (2026-07-16)
+Les **4 sous-sprints livres, commites et pousses** ; **cloture faite** (NOTES.md redige, journal/memory/
+dettes/backlog a jour). Commits : S4.1 `1912c6b` · S4.2 `37b9b7c` · S4.3 `cc8aa9e` · S4.4 `e33ed9c`
+(+ ouverture `ccab5a5`, + commit de cloture). Banc **inchange sur tout le sprint** : `dotnet test` = **95**
+(89 core + 6 serveur), build Godot **0 erreur/0 avert.**, smoke headless `ring=1 cylinders=2 pallets=3
+sensors=2` + `panel rows=5`. **Zero modif core.** Dette nee : **D-018** (5 champs de nœuds vestigiaux).
+**D-015 partie navigation soldee** (vitesse reglable reste reportee). Reste **uniquement** la validation
+visuelle Nico (F5 + `demo_sprint_04.ps1`) ci-dessous.
+
 ## REPRISE
-**S4.1 + S4.2 + S4.3 faits et commites/pousses** (`1912c6b`, `37b9b7c`, + commit S4.3 orchestrateur).
-**S4.4 Demo faite** (`demo_sprint_04.ps1`), en attente de commit par l'orchestrateur.
-Banc **inchange** (95 + build Godot 0 erreur + smoke `rows=5`). Les 4 sous-sprints sont livres :
-reste la **cloture** (NOTES.md a rediger, /sprint close).
+Sprint 4 clos. **Prochaine etape : validation visuelle Nico** (checklist ci-dessous), puis piste
+**Phase 4 (M580 reel)** — independante — OU un nouveau sprint via `/conception` (candidats backlog :
+**D-016** edition in-app / **D-017** injection de defauts, tous deux post-demonstrateur).
 
 Validation manuelle Nico (F5, + M580 reel ou io_scanner) restante, cumulee sur S4.1-S4.3 :
 - **S4.1** : maquette Maximized au lancement ; orbite (milieu) / pan (Shift+milieu) / zoom (molette ∝

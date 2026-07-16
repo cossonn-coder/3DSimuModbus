@@ -59,20 +59,22 @@ Brief : `docs/sprints/sprint_01/overview.md`
   - [x] S3.2 — Santé visible (bandeau bind + panneau santé ; **solde D-013**) — visuel. — `30e4f2b`
   - [x] S3.3 — Chaîne par élément + coloration + `demo_sprint_03.ps1` — visuel/observable. — `f1523f2`
 
-## Phase 1quater — Ergonomie d'utilisation 🔄
+## Phase 1quater — Ergonomie d'utilisation ✅
 > Brief : `docs/sprints/sprint_04/overview.md`. Priorité n°1 de Nico (générique à N machines, cf.
 > `CLAUDE.md` §0bis). Navigation 3D libre + panneau des éléments + surbrillance croisée + plein écran.
 > **Lecture seule**, pivot inchangé, Arch A intacte, **banc inchangé** (95 + 4 pytest). Solde la partie
 > **navigation** de D-015 (la vitesse réglable reste reportée).
-- 🔄 Sprint 4 : 4 sous-sprints séquentiels (orchestrés par `/sprint open 04`), conception figée 2026-07-16 :
-  - [~] S4.1 — Présentation : caméra orbitale (CAO) + plein écran/résolution (`project.godot`) + F11.
+- ✅ Sprint 4 : 4 sous-sprints séquentiels (orchestrés par `/sprint open 04`, clos 2026-07-16 ;
+  validation visuelle Nico restante — F5 + `demo_sprint_04.ps1`). Banc **95 verts** (inchangé), build
+  Godot 0 erreur, smoke `panel rows=5`. Dette née : **D-018** (nœuds vestigiaux). **D-015 nav soldée** :
+  - [x] S4.1 — Présentation : caméra orbitale (CAO) + plein écran/résolution (`project.godot`) + F11. — `1912c6b`
     — amorce : `docs/sprints/sprint_04/brique_01_presentation.md`
-  - [~] S4.2 — Panneau latéral (5 colonnes, peuplé du pivot) + relocalisation du décodage + dépose
-    `CommandChainLabels` + coloration préservée + survol ligne→3D.
+  - [x] S4.2 — Panneau latéral (5 colonnes, peuplé du pivot) + relocalisation du décodage + dépose
+    `CommandChainLabels` + coloration préservée + survol ligne→3D. — `37b9b7c`
     — amorce : `docs/sprints/sprint_04/brique_02_panneau.md`
-  - [~] S4.3 — Picking 3D→panneau (Area3D + surbrillance symétrique).
+  - [x] S4.3 — Picking 3D→panneau (Area3D + surbrillance symétrique). — `cc8aa9e`
     — amorce : `docs/sprints/sprint_04/brique_03_picking.md`
-  - [~] S4.4 — `demo_sprint_04.ps1` + sortie observable (re-montre D-013).
+  - [x] S4.4 — `demo_sprint_04.ps1` + sortie observable (re-montre D-013). — `e33ed9c`
     — amorce : `docs/sprints/sprint_04/brique_04_demo.md`
 
 ## Phase 4 — Intégration M580 réelle ⏳
