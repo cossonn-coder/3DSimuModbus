@@ -16,6 +16,22 @@ Le fichier `pivot/machine_carrousel.json` est le **contrat central** du projet :
 écrit à la main en Phase 0, il sera produit par le pipeline Python (Phases 2-3) et
 consommé par le runtime Godot. **Toute évolution fonctionnelle commence par ce schéma.**
 
+## 0bis. Vision long terme (au-delà du démonstrateur)
+
+Le carrousel n'est PAS le produit : c'est le véhicule de validation. La cible finale est
+un outil qui, à partir d'un modèle 3D, d'un fichier DWG, d'un schéma électrique PDF et de
+tout autre document nécessaire, GÉNÈRE automatiquement une simulation 3D connectée en
+Modbus à un automate réel (pipeline Python → pivot JSON → runtime Godot). Le pivot JSON
+est le pont : aujourd'hui écrit à la main, demain produit par le pipeline d'extraction
+(Phases 2-3) et/ou par un éditeur in-app (Phase 5).
+
+Conséquence pratique pour CHAQUE conception et CHAQUE sprint : toute fonctionnalité doit
+être pensée « générique via le pivot » et non « spécifique au carrousel ». Avant de figer
+un choix, se demander : « ce mécanisme survivra-t-il quand la machine sera générée depuis
+un DWG et un schéma que je n'ai jamais vus ? ». La navigation 3D, le HUD, le forçage, le
+catalogue d'éléments, l'injection de défauts : tout cela s'applique à N machines futures,
+pas à une. Le carrousel sert à prouver ; la généricité par le pivot sert à durer.
+
 ## 1. Règles spécifiques projet (priment sur le reste)
 
 ### Langue et style

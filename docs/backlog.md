@@ -59,9 +59,27 @@ Brief : `docs/sprints/sprint_01/overview.md`
   - [x] S3.2 — Santé visible (bandeau bind + panneau santé ; **solde D-013**) — visuel. — `30e4f2b`
   - [x] S3.3 — Chaîne par élément + coloration + `demo_sprint_03.ps1` — visuel/observable. — `f1523f2`
 
+## Phase 1quater — Ergonomie d'utilisation 🔄
+> Brief : `docs/sprints/sprint_04/overview.md`. Priorité n°1 de Nico (générique à N machines, cf.
+> `CLAUDE.md` §0bis). Navigation 3D libre + panneau des éléments + surbrillance croisée + plein écran.
+> **Lecture seule**, pivot inchangé, Arch A intacte, **banc inchangé** (95 + 4 pytest). Solde la partie
+> **navigation** de D-015 (la vitesse réglable reste reportée).
+- 🔄 Sprint 4 : 4 sous-sprints séquentiels (orchestrés par `/sprint open 04`), conception figée 2026-07-16 :
+  - [ ] S4.1 — Présentation : caméra orbitale (CAO) + plein écran/résolution (`project.godot`) + F11.
+    — amorce : `docs/sprints/sprint_04/brique_01_presentation.md`
+  - [ ] S4.2 — Panneau latéral (5 colonnes, peuplé du pivot) + relocalisation du décodage + dépose
+    `CommandChainLabels` + coloration préservée + survol ligne→3D.
+    — amorce : `docs/sprints/sprint_04/brique_02_panneau.md`
+  - [ ] S4.3 — Picking 3D→panneau (Area3D + surbrillance symétrique).
+    — amorce : `docs/sprints/sprint_04/brique_03_picking.md`
+  - [ ] S4.4 — `demo_sprint_04.ps1` + sortie observable (re-montre D-013).
+    — amorce : `docs/sprints/sprint_04/brique_04_demo.md`
+
 ## Phase 4 — Intégration M580 réelle ⏳
-- ⏳ Sprint 4 : campagne avec le programme PLC de l'automaticien, mesure de latence
-  scan↔simulation, IHM minimale (état des mots, forçage basique de debug)
+> Piste **parallèle et indépendante** (la chaîne Modbus est prête ; le collègue automaticien clone le
+> repo et déroule). Numérotée « Phase 4 » — à ne pas confondre avec le **sprint 4** (ergonomie ci-dessus).
+- ⏳ Campagne avec le programme PLC de l'automaticien, mesure de latence scan↔simulation, IHM minimale
+  (état des mots, forçage basique de debug — rejoint D-016)
 
 ## Phases 2-3 — Pipeline d'extraction Python 🧊 (après démonstrateur)
 - 🧊 DWG → DXF (ezdxf) → géométrie 2D → volumes basiques

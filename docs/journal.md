@@ -6,6 +6,39 @@ surpris, décisions prises (reportées dans memory.md), état des tests.
 
 ---
 
+## 2026-07-16 — Conception Sprint 4 : ergonomie d'utilisation (navigation + panneau + plein écran)
+
+**Contexte** : sprint 3 clos, `demo_sprint_03.ps1` déroulé avec succès (pré-vol 502 conforme,
+étiquettes %MW + couleurs OK). **Retour UX majeur de Nico** : les `Label3D` billboard collés aux
+éléments (S3.3) rendent la scène **illisible** → décision de les **supprimer** au profit d'un
+**panneau latéral 2D** avec surbrillance croisée tableau ↔ 3D. Priorité n°1 affichée : **l'ergonomie
+d'utilisation** (générique à toutes les simulations futures, cf. nouveau **§0bis** de `CLAUDE.md`).
+Nouveau besoin exprimé en séance : **plein écran + meilleure résolution**. Remote git privé
+`cossonn-coder/3DSimuModbus` en cours de création (les prochains sprints pousseront).
+
+**Objectif du sprint** : navigation 3D libre + panneau des éléments (mapping %MW décodé) + surbrillance
+croisée + présentation plein écran. **Lecture seule**, pivot inchangé, Arch A intacte, **boucle à pas
+fixe (heartbeat 10 Hz) intacte**. Vitesse de sim réglable **exclue** (ne pas dérégler le heartbeat ;
+reste D-015).
+
+**Décisions (QCM 2026-07-16)** : D-Q1 caméra style CAO (orbite=milieu, pan=Shift+milieu, zoom=molette,
+vitesse ∝ distance) ; D-Q2 surbrillance **bidirectionnelle au survol** (état partagé, picking 3D) ;
+D-Q3 panneau **5 colonnes** (Repère|Type|État|cmd %MW|ret %MW, ordre pivot) ; D-Q4 **Maximized** +
+**F11** plein écran, 1920×1080 / MSAA 4× ; D-arch **émission ≠ albédo** (surbrillance sans perte de la
+couleur d'état). Décomposition **4 sous-sprints séquentiels** (partagent `CarrouselScene.cs`) :
+S4.1 présentation (caméra + plein écran) → S4.2 panneau + relocalisation du décodage + **dépose
+`CommandChainLabels`** → S4.3 picking 3D symétrique → S4.4 démo/sortie observable.
+
+**Banc attendu** : **inchangé sur tout le sprint** — `dotnet test` = **95**, 4 pytest full-chain verts,
+build Godot 0 erreur (glue Godot pure, **zéro modif core**). Tout re-figeage serait une régression.
+
+**Livré (conception)** : `CLAUDE.md` §0bis (vision long terme) ; `docs/sprints/sprint_04/` (overview +
+4 amorces autosuffisantes + `00_etat.md`) ; ce journal ; backlog + dette mis à jour.
+
+**Suite** : `/sprint open 04` (séquentiel strict autonome, un sous-agent cold-start par sous-sprint).
+
+---
+
 ## 2026-07-16 — Ouverture Sprint 3 : durcir le démonstrateur (robustesse + traçabilité)
 
 **Contexte** : sprints 1 & 2 clos, démonstrateur 3D vivant validé à l'œil. Conception du sprint 3
