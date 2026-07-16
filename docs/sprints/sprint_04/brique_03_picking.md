@@ -79,13 +79,15 @@ forme adaptée (cf. ci-dessous). **Aucune nouvelle API publique** ; tout est pri
 
 ## Definition of Done (cochable)
 
-- [ ] `GetViewport().PhysicsObjectPicking = true` activé.
-- [ ] Un `Area3D` + forme de collision approximative par élément (convoyeur/vérins/capteurs), relié à
-      `SetHover(id, …)`.
-- [ ] Survol d'un **élément 3D** → sa **ligne se surligne** dans le panneau **et** l'élément s'éclaire ;
-      sortie de survol → retour à l'état normal **sans perdre** la couleur d'état.
-- [ ] Symétrie vérifiée : survol ligne (S4.2) et survol 3D produisent le **même** rendu.
-- [ ] Build Godot **0 erreur** ; banc **inchangé** : `dotnet test` = **95**, 4 pytest verts.
+- [x] `GetViewport().PhysicsObjectPicking = true` activé (dans `_Ready`).
+- [x] Un `Area3D` + forme de collision approximative par élément (convoyeur/vérins/capteurs), relié à
+      `SetHover(id, …)` via le helper `AttachHoverArea` (posé dans les builders sur le nœud local).
+- [~] Survol d'un **élément 3D** → sa **ligne se surligne** dans le panneau **et** l'élément s'éclaire ;
+      sortie de survol → retour à l'état normal **sans perdre** la couleur d'état. *(code en place ; rendu à confirmer F5)*
+- [~] Symétrie vérifiée : survol ligne (S4.2) et survol 3D produisent le **même** rendu.
+      *(même `SetHover` partagé → symétrie par construction ; à confirmer à l'œil F5)*
+- [x] Build Godot **0 erreur** ; banc **inchangé** : `dotnet test` = **95** ; smoke headless `rows=5`.
+      *(S4.3 ne touche pas la full-chain → pytest non requis)*
 
 ## Vérif autosuffisante
 

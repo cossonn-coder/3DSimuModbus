@@ -123,9 +123,11 @@ public partial class CarrouselScene : Node3D
     // Rempli additivement dans les builders (anneau/verins/capteurs), materiaux DEJA captures.
     private readonly System.Collections.Generic.Dictionary<string, StandardMaterial3D> _highlightMat = new();
 
-    // Noeuds 3D des elements, captures au build pour ne faire AUCUN GetNode a l'execution :
-    // anneau du convoyeur, verins, fenetres capteurs. Conserves pour le picking 3D de S4.3
-    // (Area3D par element) ; en S4.2 la surbrillance passe par les materiaux (_highlightMat).
+    // Noeuds 3D des elements, captures au build (heritage des ancres d'etiquettes 3D S3.3,
+    // Label3D retire en S4.2). S4.3 attache finalement le picking DANS les builders sur le noeud
+    // LOCAL de chaque element (generique, une Area3D par composant du pivot, cf. AttachHoverArea),
+    // sans passer par ces references : elles sont donc VESTIGIALES depuis S4.2 (dette signalee dans
+    // docs/dettes.md). Conservees telles quelles (retrait = refactor hors perimetre S4.3).
     private Node3D _ringNode = null!;
     private Node3D _cyl1Node = null!;
     private Node3D _cyl2Node = null!;
@@ -158,6 +160,13 @@ public partial class CarrouselScene : Node3D
 
     public override void _Ready()
     {
+        // --- Picking 3D (S4.3) : activer le survol des Area3D par le viewport ------------------
+        // En Godot 4, une Area3D n'emet mouse_entered/mouse_exited QUE si le viewport tire un
+        // rayon de picking sous le curseur a chaque frame. Ce drapeau est FAUX par defaut : sans
+        // lui, les zones de survol posees plus bas (AttachHoverArea) resteraient muettes et le
+        // sens « survol 3D -> ligne » semblerait « ne rien faire ». On l'active donc en premier.
+        GetViewport().PhysicsObjectPicking = true;
+
         // Chargement defensif : PivotModel.Load leve PivotException (message clair) si le contrat
         // est absent ou incoherent. On laisse l'exception remonter — Godot la journalise ; mieux
         // vaut une scene qui refuse de se construire qu'une maquette a la geometrie fausse.
@@ -270,6 +279,31 @@ public partial class CarrouselScene : Node3D
             mat.EmissionEnergyMultiplier = HighlightEnergy;
         }
         _panel.HighlightRow(id, on);
+    }
+
+    /// <summary>
+    /// S4.3 — pose une ZONE DE SURVOL 3D sur un element et la relie a <see cref="SetHover"/>.
+    /// C'est la 2e SOURCE de la surbrillance (la 1re = survol de ligne, S4.2) : les deux
+    /// convergent vers le meme <c>SetHover(id, …)</c>, donc glow 3D ET fond de ligne sont pilotes
+    /// a l'identique quel que soit le point d'entree (symetrie D-Q2, aucune logique dupliquee).
+    ///
+    /// Mecanique Godot : une Area3D est un volume IMMATERIEL (aucune collision solide, aucune
+    /// force — juste un capteur) qui, quand le viewport tire son rayon de picking sous le curseur
+    /// (active dans <see cref="_Ready"/>), emet mouse_entered/mouse_exited. On lui greffe une
+    /// CollisionShape3D APPROXIMATIVE (formes par element, cf. builders) eventuellement decalee de
+    /// <paramref name="shapeOffset"/>. L'Area3D est ENFANT du noeud de l'element : elle herite donc
+    /// de sa position et de sa rotation (utile pour les fenetres capteurs orientees sur le rayon).
+    /// </summary>
+    private void AttachHoverArea(Node3D anchor, string id, Shape3D shape, Vector3 shapeOffset = default)
+    {
+        var area = new Area3D { Name = $"{id}_hover", InputRayPickable = true };
+        area.AddChild(new CollisionShape3D { Shape = shape, Position = shapeOffset });
+        anchor.AddChild(area);
+
+        // Les deux signaux alimentent la source UNIQUE SetHover : entree du curseur => on, sortie
+        // => off. Le pointeur etant unique, un seul survol est actif a la fois (pas de compteur).
+        area.MouseEntered += () => SetHover(id, true);
+        area.MouseExited += () => SetHover(id, false);
     }
 
     /// <summary>
@@ -482,6 +516,14 @@ public partial class CarrouselScene : Node3D
         _ringMat = (StandardMaterial3D)outer.Material;
         _highlightMat[conveyor.Id] = _ringMat;   // S4.2 : materiau a « allumer » (emission) au survol
 
+        // S4.3 : zone de survol de l'anneau. On N'ACTIVE PAS la collision du CSG (couteuse et
+        // inutile ici) : un cylindre PLAT couvrant l'empreinte (rayon = exterieur, hauteur = celle
+        // de l'anneau) suffit a relier le survol au repere KM1. Approximation ASSUMEE — le survol
+        // se declenche aussi au-dessus du trou central, sans consequence (rien d'autre n'y est).
+        // L'Area3D est enfant du CsgCombiner3D (centre sur `center`) : la forme centree a l'origine
+        // epouse donc l'empreinte de l'anneau sans decalage.
+        AttachHoverArea(ring, conveyor.Id, new CylinderShape3D { Radius = outerR, Height = height });
+
         return center.Y + height / 2f;
     }
 
@@ -537,6 +579,14 @@ public partial class CarrouselScene : Node3D
 
         // S4.2 : materiau de la tige = cible d'emission au survol (routage par id, comme ci-dessus).
         _highlightMat[cyl.Id] = (StandardMaterial3D)rod.MaterialOverride;
+
+        // S4.3 : zone de survol du verin, englobant le fut ET la course de la tige. L'element
+        // occupe en Y de 0 (base du fut) a BodyHeight+stroke (sommet de la tige SORTIE) : un
+        // cylindre de cette hauteur, centre a mi-hauteur (offset +Y), au rayon du fut, couvre tout
+        // l'element quelle que soit la position de la tige. Approximation englobante suffisante.
+        float pickHeight = BodyHeight + stroke;
+        AttachHoverArea(node, cyl.Id, new CylinderShape3D { Radius = BodyRadius, Height = pickHeight },
+            new Vector3(0f, pickHeight / 2f, 0f));
     }
 
     /// <summary>Palette : boite posee sur l'anneau, orientee sur le rayon (alignement cosmetique).</summary>
@@ -594,6 +644,11 @@ public partial class CarrouselScene : Node3D
 
         // S4.2 : materiau de la fenetre capteur = cible d'emission au survol (routage par id).
         _highlightMat[sensor.Id] = (StandardMaterial3D)window.MaterialOverride;
+
+        // S4.3 : zone de survol de la fenetre capteur = une BOITE aux dimensions du volume
+        // translucide (meme centrage a l'origine que le BoxMesh). L'Area3D est enfant du noeud
+        // oriente sur le rayon : la boite herite de la rotation du poste et epouse la fenetre.
+        AttachHoverArea(window, sensor.Id, new BoxShape3D { Size = new Vector3(ringWidth, SensorHeight, chord) });
     }
 
     // --- Helpers -------------------------------------------------------------------------------
