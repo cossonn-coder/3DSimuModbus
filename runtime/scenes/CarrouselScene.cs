@@ -154,7 +154,8 @@ public partial class CarrouselScene : Node3D
 
     // Surbrillance de survol (S4.2) : couleur/energie EMISSION (mobilier de rendu hors pivot). Le
     // canal emission « ajoute » de la lumiere par-dessus l'albedo sans l'ecraser (D-arch) : au retour
-    // du survol on coupe EmissionEnabled et l'element retrouve exactement sa couleur d'etat.
+    // du survol on ramene l'ENERGIE d'emission a 0 (un uniforme, PAS de recompilation shader — cf.
+    // RegisterHighlight / SetHover) et l'element retrouve exactement sa couleur d'etat.
     private static readonly Color HighlightEmission = new(0.55f, 0.75f, 1.00f);   // halo bleu clair
     private const float HighlightEnergy = 0.65f;
 
@@ -272,13 +273,33 @@ public partial class CarrouselScene : Node3D
     /// </summary>
     private void SetHover(string id, bool on)
     {
+        // On ne touche QUE l'energie d'emission (un UNIFORME du shader), jamais EmissionEnabled.
+        // Raison perf (regression corrigee) : basculer EmissionEnabled est un changement de FEATURE
+        // du materiau -> Godot REGENERE et RECOMPILE le shader a chaque bascule. Au survol, ce
+        // recompile faisait chuter le framerate, et donc RALENTIR la simulation (les ticks en trop
+        // sont alors abandonnes par le garde-fou anti-spirale de _PhysicsProcess). L'emission est
+        // desormais PRE-ACTIVEE au build (RegisterHighlight) avec une energie nulle ; ici on module
+        // seulement l'energie 0 <-> HighlightEnergy : un simple set d'uniforme, sans recompilation.
         if (_highlightMat.TryGetValue(id, out var mat))
-        {
-            mat.EmissionEnabled = on;
-            mat.Emission = HighlightEmission;
-            mat.EmissionEnergyMultiplier = HighlightEnergy;
-        }
+            mat.EmissionEnergyMultiplier = on ? HighlightEnergy : 0f;
+
         _panel.HighlightRow(id, on);
+    }
+
+    /// <summary>
+    /// Enregistre le materiau d'un element comme cible de surbrillance, avec l'emission PRE-ACTIVEE
+    /// mais d'energie NULLE (donc invisible : l'element garde exactement sa couleur d'etat/albedo au
+    /// repos). C'est la cle de la performance du survol : en gardant <c>EmissionEnabled=true</c> en
+    /// permanence, <see cref="SetHover"/> n'a plus qu'a faire varier l'ENERGIE (un uniforme) au lieu
+    /// de basculer une FEATURE du shader (qui forcerait une recompilation a chaque survol). Le cout de
+    /// compilation du variant emissif est ainsi paye UNE fois au chargement, pas a chaque survol.
+    /// </summary>
+    private void RegisterHighlight(string id, StandardMaterial3D mat)
+    {
+        mat.EmissionEnabled = true;
+        mat.Emission = HighlightEmission;
+        mat.EmissionEnergyMultiplier = 0f;
+        _highlightMat[id] = mat;
     }
 
     /// <summary>
@@ -514,7 +535,7 @@ public partial class CarrouselScene : Node3D
         // le contact KM1_AUX est ferme). On reutilise le materiau deja pose, on ne recree rien.
         _ringNode = ring;
         _ringMat = (StandardMaterial3D)outer.Material;
-        _highlightMat[conveyor.Id] = _ringMat;   // S4.2 : materiau a « allumer » (emission) au survol
+        RegisterHighlight(conveyor.Id, _ringMat);   // S4.2 : materiau a « allumer » (emission) au survol
 
         // S4.3 : zone de survol de l'anneau. On N'ACTIVE PAS la collision du CSG (couteuse et
         // inutile ici) : un cylindre PLAT couvrant l'empreinte (rayon = exterieur, hauteur = celle
@@ -578,7 +599,7 @@ public partial class CarrouselScene : Node3D
         }
 
         // S4.2 : materiau de la tige = cible d'emission au survol (routage par id, comme ci-dessus).
-        _highlightMat[cyl.Id] = (StandardMaterial3D)rod.MaterialOverride;
+        RegisterHighlight(cyl.Id, (StandardMaterial3D)rod.MaterialOverride);
 
         // S4.3 : zone de survol du verin, englobant le fut ET la course de la tige. L'element
         // occupe en Y de 0 (base du fut) a BodyHeight+stroke (sommet de la tige SORTIE) : un
@@ -643,7 +664,7 @@ public partial class CarrouselScene : Node3D
         }
 
         // S4.2 : materiau de la fenetre capteur = cible d'emission au survol (routage par id).
-        _highlightMat[sensor.Id] = (StandardMaterial3D)window.MaterialOverride;
+        RegisterHighlight(sensor.Id, (StandardMaterial3D)window.MaterialOverride);
 
         // S4.3 : zone de survol de la fenetre capteur = une BOITE aux dimensions du volume
         // translucide (meme centrage a l'origine que le BoxMesh). L'Area3D est enfant du noeud
