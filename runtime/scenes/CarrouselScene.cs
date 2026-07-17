@@ -473,6 +473,52 @@ public partial class CarrouselScene : Node3D
     {
         _sim.Faults.Apply(cmd);
         RefreshEmission(cmd.ComponentId);
+        // Retour IMMEDIAT de l'encart conséquence (sans attendre le ~6 Hz) : en demo, l'explication
+        // doit apparaitre a l'instant du declenchement pour qu'on VERIFIE qu'elle s'affiche bien.
+        _panel.RefreshFaults(BuildFaultEntries());
+    }
+
+    /// <summary>
+    /// Compose la liste (titre, explication) des defauts ACTIFS pour l'encart conséquence du panneau :
+    /// d'abord les defauts par element (physique dans l'ordre du pivot, puis capteurs bloques), puis
+    /// les defauts de communication globaux (gel des retours, coupure TCP volontaire). En MODE AVEUGLE,
+    /// renvoie une liste VIDE : l'encart disparait comme le badge et le rouge 3D (aucun indice visuel).
+    /// La traduction FR (titres + explications) est deleguee a <see cref="ElementPanel"/> (source unique).
+    /// </summary>
+    private System.Collections.Generic.IReadOnlyList<(string Heading, string Body)> BuildFaultEntries()
+    {
+        var entries = new System.Collections.Generic.List<(string, string)>();
+        if (_blindMode)
+            return entries;
+
+        var faults = _sim.Faults;
+
+        // Defauts physiques, dans l'ordre du pivot (comme le cyclage clavier et le tableau).
+        foreach (var id in _componentIds)
+        {
+            if (!_components.TryGetValue(id, out var comp))
+                continue;
+            var phys = faults.GetPhysical(id);
+            if (phys != PhysicalFault.None)
+                entries.Add(ElementPanel.FaultEntry(new FaultCommand(FaultKind.Physical, id, Physical: phys), comp));
+        }
+
+        // Capteurs bloques (chaque bit `ret` TOR force), independamment de l'element.
+        foreach (var (compId, sigName, mode) in faults.ActiveStucks)
+            if (_components.TryGetValue(compId, out var comp))
+                entries.Add(ElementPanel.FaultEntry(
+                    new FaultCommand(FaultKind.SensorStuck, compId, SignalName: sigName, Stuck: mode), comp));
+
+        // Defauts de communication globaux (non lies a un element).
+        if (faults.RetFrozen)
+            entries.Add(ElementPanel.CommFaultEntry(ElementPanel.CommFaultKind.RetFrozen));
+        // Coupure TCP VOLONTAIRE uniquement : serveur demarre puis arrete depuis le panneau comm. On
+        // exclut l'echec de bind au demarrage (_serverFailed) — ce n'est pas un defaut injecte mais un
+        // probleme d'infrastructure, deja signale par le bandeau rouge du HealthHud (D-013).
+        if (!_serverFailed && !_server.IsListening)
+            entries.Add(ElementPanel.CommFaultEntry(ElementPanel.CommFaultKind.TcpCut));
+
+        return entries;
     }
 
     /// <summary>
@@ -515,6 +561,8 @@ public partial class CarrouselScene : Node3D
         _panel.SetBlindMode(_blindMode);
         foreach (var id in _componentIds)
             RefreshEmission(id);
+        // L'encart conséquence suit la meme regle que le badge : vide en mode aveugle, restaure sinon.
+        _panel.RefreshFaults(BuildFaultEntries());
     }
 
     /// <summary>
@@ -624,6 +672,10 @@ public partial class CarrouselScene : Node3D
         ushort[] cmd = _store.SnapshotCommands();
         ushort[] ret = _store.SnapshotReturns();
         _panel.Update(cmd, ret);
+
+        // Encart « conséquence du défaut » : recompose la liste des defauts actifs (par element + comm)
+        // et la pousse au panneau. Meme cadence ~6 Hz que le tableau (aucun scintillement).
+        _panel.RefreshFaults(BuildFaultEntries());
 
         // Coloration d'etat (reutilisation des materiaux deja poses, on ne touche que AlbedoColor) :
         //   - tige : degrade repos->actif selon la course reelle (0..1) du verin ;

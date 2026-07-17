@@ -294,6 +294,8 @@ Write-Host ''
 Write-Host 'Demo injection de defauts sprint 5 - regarde la fenetre Godot et suis le guidage console.'
 Write-Host '  8 familles : verin ne sort pas / coince mi-course / capteur menteur / convoyeur patine /'
 Write-Host '  gel retours / coupure TCP / mode aveugle. TU injectes dans l IHM ; io_scanner montre le PLC.'
+Write-Host '  A chaque defaut, l encart "CONSEQUENCE DU DEFAUT" (sous le tableau) explique la panne :' -ForegroundColor DarkGray
+Write-Host '  verifie qu il apparait avec le bon repere, et disparait en mode aveugle (B) ou apres reparation (R).' -ForegroundColor DarkGray
 if ($script:Interactive) {
     Write-Host '  Rythme INTERACTIF : a chaque phase, lis les consignes, prepare l IHM, puis ENTREE pour lancer le scan.' -ForegroundColor DarkGray
     Write-Host '  (Passe -Prep <n> pour enchainer automatiquement avec un decompte de n secondes par phase.)' -ForegroundColor DarkGray

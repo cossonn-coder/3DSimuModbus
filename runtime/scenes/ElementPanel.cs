@@ -122,6 +122,16 @@ public partial class ElementPanel : CanvasLayer
     // que les defauts restent REELLEMENT injectes (sinon on s'y perd). Bascule par SetBlindMode.
     private Label _blindIndicator = null!;
 
+    // --- Encart « conséquence du défaut » (demande Nico) : SOUS le tableau, dans le meme panneau -----
+    // Explique EN CLAIR la consequence de chaque defaut actif, chaque bloc nomme par le repere de son
+    // element (« relie a l'element mis en panne »), pour rendre l'effet OBSERVABLE en demo. Il n'a
+    // aucune source propre : la SCENE le nourrit via RefreshFaults (elle seule connait _sim.Faults et
+    // l'etat du serveur). Masque quand aucun defaut OU en mode aveugle (meme regle que le badge de la
+    // colonne « Défaut »). Corps en AutowrapMode : le texte s'ajuste a la largeur du panneau
+    // redimensionnable, sans jamais declencher de defilement horizontal.
+    private PanelContainer _faultEncart = null!;
+    private Label _faultEncartBody = null!;
+
     // Styleboxes partagees des lignes : transparente au repos, teintee en survol, teintee (cyan) en
     // selection. On ne recree rien par frame, on echange juste l'override « panel » de la ligne. La
     // selection (S5.2) prime visuellement sur le survol : les deux etats se composent dans RefreshRowStyle.
@@ -214,18 +224,26 @@ public partial class ElementPanel : CanvasLayer
             margin.AddThemeConstantOverride(side, 8);
         _bg.AddChild(margin);
 
+        // Colonne verticale : le TABLEAU (extensible) en haut, l'ENCART conséquence en bas. Le tableau
+        // prend toute la hauteur restante (ExpandFill sur son scroll) ; l'encart se pose SOUS lui, dans
+        // le meme fond ancre. C'est ce qui satisfait « en dessous du tableau, dans le meme encart ».
+        var column = new VBoxContainer();
+        margin.AddChild(column);
+
         // --- Zone defilante (H + V) : rend lisibles les colonnes plus larges que le panneau -------
         // ScrollContainer en mode Auto : la barre horizontale apparait des qu'une ligne depasse la
         // largeur visible (colonne ret nommee, etat long...), la verticale des que les lignes
         // depassent la hauteur (utile quand la machine generee aura beaucoup de composants). L'entete
         // vit DANS la zone defilante, avec les lignes : elle scrolle horizontalement avec elles, ce
-        // qui garde les colonnes alignees sous leur titre.
+        // qui garde les colonnes alignees sous leur titre. ExpandFill : le tableau absorbe la hauteur,
+        // laissant l'encart conséquence se poser en bas.
         var scroll = new ScrollContainer
         {
             HorizontalScrollMode = ScrollContainer.ScrollMode.Auto,
             VerticalScrollMode = ScrollContainer.ScrollMode.Auto,
+            SizeFlagsVertical = Control.SizeFlags.ExpandFill,
         };
-        margin.AddChild(scroll);
+        column.AddChild(scroll);
 
         var list = new VBoxContainer();
         scroll.AddChild(list);
@@ -241,6 +259,9 @@ public partial class ElementPanel : CanvasLayer
             _rows.Add(row);
             _rowsById[comp.Id] = row;
         }
+
+        // Encart « conséquence du défaut », ajoute SOUS le tableau dans la meme colonne (cf. _faultEncart).
+        BuildFaultEncart(column);
 
         // --- Poignee de redimensionnement (bord GAUCHE du panneau) -----------------------------
         // Bande fine ancree sur toute la hauteur du bord gauche, curseur « redimensionnement
@@ -613,6 +634,70 @@ public partial class ElementPanel : CanvasLayer
     /// <summary>Montre/masque l'indicateur « MODE AVEUGLE » (le defaut reste injecte ; seul l'indice visuel change).</summary>
     public void SetBlindMode(bool on) => _blindIndicator.Visible = on;
 
+    // --- Encart « conséquence du défaut » (demande Nico) : construction + mise a jour --------------
+
+    /// <summary>
+    /// Construit l'encart « conséquence du défaut » (masque par defaut) et l'ajoute SOUS le tableau,
+    /// dans la meme colonne. Un titre fixe colore + un corps <c>AutowrapMode</c> alimente par
+    /// <see cref="RefreshFaults"/>. Fond rouge attenue pour se distinguer du tableau sans alarmer.
+    /// </summary>
+    private void BuildFaultEncart(VBoxContainer column)
+    {
+        // MouseFilter Ignore partout : purement indicatif, il ne capte aucun clic (ni selection, ni
+        // orbite camera). Le fond du panneau (_bg, MouseFilter Stop) protege deja la camera dessous.
+        _faultEncart = new PanelContainer { Visible = false, MouseFilter = Control.MouseFilterEnum.Ignore };
+        _faultEncart.AddThemeStyleboxOverride("panel", new StyleBoxFlat
+        {
+            BgColor = new Color(0.32f, 0.06f, 0.05f, 0.90f),
+            ContentMarginLeft = 10, ContentMarginRight = 10, ContentMarginTop = 8, ContentMarginBottom = 8,
+            CornerRadiusTopLeft = 4, CornerRadiusTopRight = 4, CornerRadiusBottomLeft = 4, CornerRadiusBottomRight = 4,
+        });
+
+        var box = new VBoxContainer { MouseFilter = Control.MouseFilterEnum.Ignore };
+        _faultEncart.AddChild(box);
+
+        var title = new Label { Text = "CONSÉQUENCE DU DÉFAUT", MouseFilter = Control.MouseFilterEnum.Ignore };
+        title.AddThemeColorOverride("font_color", new Color(1f, 0.70f, 0.55f));
+        box.AddChild(title);
+
+        // Corps en AutowrapMode Word : le texte s'enroule a la largeur de la colonne (= largeur du
+        // panneau), donc pas de defilement horizontal ; sa hauteur suit le contenu (1 a N defauts).
+        _faultEncartBody = new Label
+        {
+            AutowrapMode = TextServer.AutowrapMode.Word,
+            MouseFilter = Control.MouseFilterEnum.Ignore,
+        };
+        _faultEncartBody.AddThemeColorOverride("font_color", new Color(1f, 0.90f, 0.85f));
+        box.AddChild(_faultEncartBody);
+
+        column.AddChild(_faultEncart);
+    }
+
+    /// <summary>
+    /// Met a jour l'encart « conséquence du défaut » depuis la liste (titre, explication) fournie par
+    /// la SCENE — elle seule connait <c>_sim.Faults</c> et l'etat serveur, et applique deja le mode
+    /// aveugle (liste vide s'il est actif). Liste vide => encart masque. Un bloc par defaut : le titre
+    /// « <repère> — <libellé> » puis l'explication indentee, blocs separes par une ligne vide.
+    /// </summary>
+    public void RefreshFaults(System.Collections.Generic.IReadOnlyList<(string Heading, string Body)> entries)
+    {
+        if (entries.Count == 0)
+        {
+            _faultEncart.Visible = false;
+            return;
+        }
+
+        var sb = new System.Text.StringBuilder();
+        for (int i = 0; i < entries.Count; i++)
+        {
+            if (i > 0)
+                sb.Append("\n\n");
+            sb.Append(entries[i].Heading).Append('\n').Append("  ").Append(entries[i].Body);
+        }
+        _faultEncartBody.Text = sb.ToString();
+        _faultEncart.Visible = true;
+    }
+
     /// <summary>
     /// Libelle FR d'une commande de defaut (presentation, esprit <see cref="TypeLabels"/>) : mappe le
     /// <see cref="FaultCommand"/> vers un texte lisible par l'automaticien. Reutilise par le menu (cote
@@ -643,6 +728,77 @@ public partial class ElementPanel : CanvasLayer
                 };
             default:
                 return cmd.ToString();
+        }
+    }
+
+    // --- Textes pedagogiques de l'encart « conséquence du défaut » (demande Nico) -----------------
+    // Comme FaultCommandLabel, ces textes vivent ICI (un seul endroit ou vit la presentation FR) et
+    // sont GENERIQUES PAR MODE de defaut, jamais par id carrousel (§0bis : ils survivront a une machine
+    // generee depuis un DWG inconnu). La scene appelle FaultEntry / CommFaultEntry pour composer la
+    // liste (titre, explication) qu'elle pousse au panneau via RefreshFaults.
+
+    /// <summary>Defaut de communication global (non lie a un element) : deux modes du sprint 5.</summary>
+    public enum CommFaultKind { RetFrozen, TcpCut }
+
+    /// <summary>
+    /// (Titre, explication) d'un defaut PAR ELEMENT : le titre relie le defaut a son repere
+    /// (« <repère> — <libellé> », <see cref="FaultCommandLabel"/>), l'explication en decrit la
+    /// consequence pour le PLC (<see cref="FaultExplanation"/>).
+    /// </summary>
+    public static (string Heading, string Body) FaultEntry(FaultCommand cmd, Component comp)
+        => ($"{comp.Tag} — {FaultCommandLabel(cmd, comp)}", FaultExplanation(cmd, comp));
+
+    /// <summary>(Titre, explication) d'un defaut de COMMUNICATION global (gel des retours / coupure TCP).</summary>
+    public static (string Heading, string Body) CommFaultEntry(CommFaultKind kind) => kind switch
+    {
+        CommFaultKind.RetFrozen => ("Communication — gel des retours",
+            "La simulation tourne toujours (la 3D bouge) mais ne publie plus aucun mot ret, heartbeat compris. " +
+            "Le PLC voit une image figée alors que la machine évolue : un watchdog doit détecter l'absence de heartbeat."),
+        CommFaultKind.TcpCut => ("Communication — coupure TCP",
+            "Le serveur Modbus a fermé le port 502 : l'esclave disparaît de l'I/O Scanner. " +
+            "Le M580 tombe en défaut de scrutation jusqu'à la reconnexion (re-bind du port 502)."),
+        _ => ("Communication", ""),
+    };
+
+    /// <summary>
+    /// Explication pedagogique de la CONSEQUENCE d'un defaut par element, generique par mode. Le
+    /// repere du signal bloque est resolu via <see cref="SignalLabel"/> (S11/S12, KM1_AUX...). Mode
+    /// inconnu => texte neutre (defensif, jamais d'exception).
+    /// </summary>
+    public static string FaultExplanation(FaultCommand cmd, Component comp)
+    {
+        switch (cmd.Kind)
+        {
+            case FaultKind.Physical:
+                return cmd.Physical switch
+                {
+                    PhysicalFault.CylinderStuckRetracted =>
+                        "La tige reste rentrée malgré la commande d'extension : le fin de course « sorti » ne passe " +
+                        "jamais à 1. Le PLC voit une commande sans confirmation de fin de course (défaut de course).",
+                    PhysicalFault.CylinderStuckMidStroke =>
+                        "La tige se fige à mi-course : ni le fin de course « rentré » ni « sorti » n'est à 1. " +
+                        "Le PLC ne sait plus où est le vérin (position indéterminée, aucune butée confirmée).",
+                    PhysicalFault.ConveyorSlip =>
+                        "KM1_AUX confirme la marche mais les palettes n'avancent plus et B1/B2 n'évoluent pas. " +
+                        "Sans codeur de mouvement, le PLC ne détecte pas le glissement : marche commandée ≠ mouvement réel.",
+                    _ => "Comportement physique dégradé de l'élément.",
+                };
+            case FaultKind.SensorStuck:
+            {
+                string label = SignalLabel(comp, cmd.SignalName);
+                return cmd.Stuck switch
+                {
+                    StuckMode.Low =>
+                        $"Le retour {label} est forcé à 0 quel que soit l'état réel : le PLC le lit en permanence " +
+                        "inactif. Un capteur muet peut masquer une présence réelle ou une fin de course pourtant atteinte.",
+                    StuckMode.High =>
+                        $"Le retour {label} est forcé à 1 quel que soit l'état réel : le PLC le lit en permanence " +
+                        "actif. Un capteur collé peut simuler une présence absente ou une fin de course jamais atteinte.",
+                    _ => $"Le retour {label} est bloqué à une valeur fixe.",
+                };
+            }
+            default:
+                return "";
         }
     }
 
