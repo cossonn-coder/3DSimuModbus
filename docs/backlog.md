@@ -77,6 +77,23 @@ Brief : `docs/sprints/sprint_01/overview.md`
   - [x] S4.4 — `demo_sprint_04.ps1` + sortie observable (re-montre D-013). — `e33ed9c`
     — amorce : `docs/sprints/sprint_04/brique_04_demo.md`
 
+## Phase 1quinquies — Injection de défauts 🔄
+> Brief : `docs/sprints/sprint_05/overview.md`. Forcer depuis l'IHM un défaut **physique ou de comm**
+> par élément pour éprouver le M580 — **sans jamais écrire un mot Modbus**. Défaut dans la sim pure,
+> `ret` en découlent, générique par type. Pivot inchangé, Arch A intacte, boucle 10 Hz intacte.
+> Solde **D-017** et **D-018**, prépare **D-016**. Orchestré par `/sprint open 05` (ouvert 2026-07-17).
+- 🔄 Sprint 5 : 5 sous-sprints séquentiels (S5.2/S5.3/S5.4 partagent `CarrouselScene.cs`) :
+  - 🔄 S5.1 — cœur pur (`FaultSet`+`FaultCatalog`+`FaultCommand`+injection sim) — headless/xUnit, banc re-figé.
+    — amorce : `docs/sprints/sprint_05/brique_01_faultset.md`
+  - ⏳ S5.2 — sélection clic 3D↔ligne + clavier + **solde D-018** — visuel, banc inchangé.
+    — amorce : `docs/sprints/sprint_05/brique_02_selection.md`
+  - ⏳ S5.3 — menu par ligne + marquage 3D/badge + mode aveugle — visuel, banc inchangé.
+    — amorce : `docs/sprints/sprint_05/brique_03_menu_defauts.md`
+  - ⏳ S5.4 — déconnexion TCP + contrôle comm global — backend+UI, banc serveur re-figé.
+    — amorce : `docs/sprints/sprint_05/brique_04_coupure_comm.md`
+  - ⏳ S5.5 — `demo_sprint_05.ps1` + sortie observable — observable, banc intact.
+    — amorce : `docs/sprints/sprint_05/brique_05_demo.md`
+
 ## Phase 4 — Intégration M580 réelle ⏳
 > Piste **parallèle et indépendante** (la chaîne Modbus est prête ; le collègue automaticien clone le
 > repo et déroule). Numérotée « Phase 4 » — à ne pas confondre avec le **sprint 4** (ergonomie ci-dessus).

@@ -6,6 +6,20 @@ surpris, décisions prises (reportées dans memory.md), état des tests.
 
 ---
 
+## 2026-07-17 — Ouverture sprint 5 « Injection de défauts » (`/sprint open 05`)
+
+**Contexte** : conception figée (5 amorces + overview + 00_etat). Arbre git remis propre avant
+lancement — `runtime/project.godot` (élagage éditeur Godot des commentaires pédagogiques S4.1,
+dette D-014) restauré via `git checkout` sur choix de Nico, pour ne pas mêler ce diff aux commits
+du sprint.
+
+**Action** : orchestration séquentielle stricte et autonome des 5 sous-sprints
+S5.1 → S5.2 → S5.3 → S5.4 → S5.5 (S5.2/S5.3/S5.4 partagent `CarrouselScene.cs`). Un sous-agent
+cold-start par sous-sprint, banc vérifié + commit par l'orchestrateur entre chaque, puis clôture
+auto-enchaînée. Entrée de clôture consolidée à la fin.
+
+---
+
 ## 2026-07-17 — Conception sprint 5 « Injection de défauts » (`/conception`)
 
 **Objectif** : cadrer l'architecture pour forcer depuis l'IHM un défaut **physique ou de comm**
