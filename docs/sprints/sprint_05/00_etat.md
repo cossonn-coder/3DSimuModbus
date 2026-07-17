@@ -4,10 +4,10 @@
 > (+ l'amorce du sous-sprint courant). Conception figée le **2026-07-17** (`/conception`).
 
 ## Où on en est
-**S5.1 + S5.2 + S5.3 + S5.4 livrées.** Reste S5.5.
-Banc vert : **xUnit core 109** (INCHANGÉ) + **serveur 10** (**re-figé 6 → 10**, +4 : déconnexion/
-reconnexion TCP) = **119 au total**. Build Godot **0 erreur**. Les 4 pytest full-chain **skippent**
-tant qu'aucun runtime Godot n'écoute sur 502 (état nominal, S5.4 n'y touche pas).
+**S5.1 + S5.2 + S5.3 + S5.4 + S5.5 livrées. Sprint complet (5/5).**
+Banc vert : **xUnit core 109** (INCHANGÉ) + **serveur 10** (INCHANGÉ) = **119 au total**. Build Godot
+**0 erreur**. S5.5 = **script de démo seul** (aucun code de prod touché), banc **intact confirmé**.
+Les 4 pytest full-chain **skippent** tant qu'aucun runtime Godot n'écoute sur 502 (état nominal).
 
 ## Intention
 Forcer depuis l'IHM un défaut **physique ou de comm** par élément, pour éprouver le M580 — **sans
@@ -34,7 +34,7 @@ publication. **Défaut inactif = nominal ⇒ 4 pytest inchangés.**
 2. [x] **S5.2** `brique_02_selection.md` — sélection clic 3D↔ligne + clavier + **D-018 soldée** (visuel). Banc inchangé (115). **LIVRÉE**.
 3. [x] **S5.3** `brique_03_menu_defauts.md` — menu par ligne + marquage 3D/badge + mode aveugle (visuel). Banc inchangé (115). **LIVRÉE**.
 4. [x] **S5.4** `brique_04_coupure_comm.md` — déconnexion TCP + contrôle comm global (backend+UI). **Banc serveur re-figé** (6 → 10, +4). **LIVRÉE**.
-5. **S5.5** `brique_05_demo.md` — `demo_sprint_05.ps1` + sortie observable. Banc intact.
+5. [x] **S5.5** `brique_05_demo.md` — `demo_sprint_05.ps1` (démo guidée 8 phases) + sortie observable. Banc **intact** (119). **LIVRÉE**.
 
 S5.2→S5.3→S5.4 partagent `CarrouselScene.cs` ⇒ **strictement séquentiels**. S5.1 d'abord, S5.5 dernier.
 
@@ -46,10 +46,27 @@ S5.2→S5.3→S5.4 partagent `CarrouselScene.cs` ⇒ **strictement séquentiels*
 - **Incohérence 3D/PLC assumée** pendant la coupure (sim animée, `ret` figé / TCP coupé) — message pédagogique voulu.
 
 ## Reste à faire
-Orchestrer **S5.5** (dernier : `demo_sprint_05.ps1` + sortie observable, banc intact).
+**Sprint terminé (5/5).** Reste la **clôture** (`/sprint close 05` : journal, memory, dettes, backlog,
+NOTES) et le commit/push par l'orchestrateur. **Validation manuelle Nico** de la démo (voir REPRISE).
 
 ## REPRISE
-**S5.1 + S5.2 + S5.3 + S5.4 livrées, non committées** (l'orchestrateur commit).
+**S5.1 + S5.2 + S5.3 + S5.4 + S5.5 livrées, non committées** (l'orchestrateur commit).
+**S5.5 — fichier ajouté (1)** : `runtime/scripts/demo_sprint_05.ps1` (démo guidée 8 phases, script SEUL,
+aucun code de prod touché). Style/pré-vol calqués sur `demo_sprint_04.ps1` (pré-vol 502 refusant SimHost
+ou port libre ; ASCII pur ; PS 5.1). Boucle `Invoke-Phase` (consignes IHM + pause `-Prep` décomptée non
+bloquante, puis N cycles `io_scanner_sim.py`). Phases : 1 nominal · 2 vérin ne sort pas (YV1, pré-injecté)
+· 3 coincé mi-course (YV2, injection PENDANT le scan pour figer à mi-hauteur) · 4 capteur menteur (S12
+bloqué à 1) · 5 convoyeur patine (KM1) · 6 gel retours (case IHM) · 7a coupure TCP (io_scanner perd la
+connexion — non bloqué grâce à l'absence de `ErrorActionPreference=Stop`) + 7b réparation · 8 mode aveugle
+(B) + retour au repos. **Banc INCHANGÉ : core 109, serveur 10 = 119, build Godot 0 erreur.**
+**Validation manuelle Nico requise** : lancer la scène (F5), puis
+`powershell -File runtime/scripts/demo_sprint_05.ps1` dans un autre terminal ; suivre les bannières,
+injecter/réparer les défauts dans l'IHM aux moments indiqués, vérifier la corrélation 3D ↔ retours PLC
+pour chaque famille. Les 4 pytest full-chain ne peuvent être validés qu'avec la scène à l'écoute sur 502
+(sinon skip) — validation manuelle.
+
+### Archive S5.4 (pour trace)
+**S5.4 — fichiers modifiés (3)** : `runtime/server/ModbusServer.cs`, `runtime/server.tests/ModbusServerTests.cs`,
 **S5.4 — fichiers modifiés (3)** : `runtime/server/ModbusServer.cs`, `runtime/server.tests/ModbusServerTests.cs`,
 `runtime/scenes/HealthHud.cs`. **`CarrouselScene.cs` NON touché** (les no-op serveur suffisent : `StepSim`
 tourne inchangé pendant la coupure ; le HUD a déjà `_server` et `_sim` via `Configure`).
@@ -67,4 +84,4 @@ tourne inchangé pendant la coupure ; le HUD a déjà `_server` et `_sim` via `C
 - Banc **core 109 inchangé**, **serveur re-figé 6 → 10** = **119**, build Godot 0 erreur. **Validation manuelle
   F5 + `io_scanner_sim.py` requise** (voir DoD/Vérif de l'amorge) : couper TCP → le client perd la connexion ;
   réparer → il rescanne ; geler retours → heartbeat figé côté client, TCP vivant.
-Prochaine action : `/sprint open 05` continue sur **S5.5** (démo + sortie observable, dernier sous-sprint).
+Prochaine action : **`/sprint close 05`** (clôture : NOTES, journal, memory, dettes, backlog) puis commit/push.

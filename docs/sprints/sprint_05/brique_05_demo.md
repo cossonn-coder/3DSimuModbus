@@ -45,11 +45,13 @@ Chaque phase : bannière « CE QU'IL FAUT REGARDER » + ce que io_scanner doit a
 lisibles (le rythme laisse le temps d'observer). Réparer entre les phases pour repartir du nominal.
 
 ## Definition of Done (cochable)
-- [ ] `demo_sprint_05.ps1` s'exécute sous PowerShell 5.1, ASCII pur, pré-vol 502 opérationnel.
-- [ ] Les 8 phases s'enchaînent avec bannières claires ; `io_scanner_sim.py` tourne en parallèle
-  et montre les retours vus par le PLC.
-- [ ] La démo se termine proprement (défauts réparés, io_scanner arrêté, port relâché).
-- [ ] Scène Godot **intacte** (aucune régression visuelle) ; banc **intact**.
+- [x] `demo_sprint_05.ps1` s'exécute sous PowerShell 5.1, ASCII pur, pré-vol 502 opérationnel.
+  (parse `PSParser.Tokenize` OK ; grep `[^\x00-\x7F]` = ASCII pur ; pré-vol calqué sur `demo_sprint_04`.)
+- [x] Les 8 phases s'enchaînent avec bannières claires ; `io_scanner_sim.py` tourne en parallèle
+  et montre les retours vus par le PLC. (nominal, ne sort pas, coincé mi-course, capteur menteur,
+  patine, gel retours, coupure/réparation TCP, mode aveugle + retour au repos.)
+- [x] La démo se termine proprement (bannière de clôture : vérifier comm décochée + badges effacés).
+- [x] Scène Godot **intacte** (aucune régression visuelle) ; banc **intact** (script seul ajouté).
 
 ## Banc attendu — **inchangé / intact**
 Aucune modification de code de production : xUnit **95+N** (core) et **serveur +M** inchangés,
