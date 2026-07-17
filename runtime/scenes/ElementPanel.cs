@@ -51,13 +51,22 @@ using Signal = CarrouselCore.Signal;
 /// </summary>
 public partial class ElementPanel : CanvasLayer
 {
-    // Largeur du panneau (px) : mobilier d'ecran hors pivot (comme la camera ou le HealthHud).
-    // Le panneau s'ancre au bord droit sur TOUTE la hauteur ; seule la largeur est fixee, et
-    // elle est calibree pour loger la colonne la plus longue (retours nommes S11/S12 + adresse).
-    private const int PanelWidth = 620;
+    // Largeur INITIALE du panneau (px) : mobilier d'ecran hors pivot (comme la camera ou le
+    // HealthHud). Le panneau s'ancre au bord droit sur TOUTE la hauteur. La largeur n'est plus
+    // figee : une poignee sur le bord gauche la fait varier au drag (cf. _panelWidth / _handle).
+    private const int DefaultPanelWidth = 620;
 
-    // Largeurs de colonnes (px), memes valeurs pour l'entete et chaque ligne : c'est ce qui
-    // ALIGNE les colonnes verticalement (chaque cellule est un Label a largeur minimale fixe).
+    // Bornes de la largeur redimensionnable (px). Le plancher garde le panneau lisible ; le
+    // plafond reel est recalcule au drag depuis la largeur de la fenetre (jamais de resolution en dur).
+    private const int MinPanelWidth = 240;
+
+    // Largeur COURANTE du panneau, pilotee par la poignee de redimensionnement. Sert de valeur
+    // de reference partout (OffsetLeft du fond = -_panelWidth). En float pour un drag fluide.
+    private float _panelWidth = DefaultPanelWidth;
+
+    // Largeurs de colonnes (px) : PLANCHERS d'alignement. Les colonnes s'ajustent au contenu le
+    // plus long rencontre (cf. AutoFitColumns) mais ne descendent jamais sous ces valeurs, ce qui
+    // garde un tableau tabulaire meme quand les cellules sont courtes.
     private static readonly int[] ColWidths = { 46, 84, 132, 116, 210 };
     private static readonly string[] Headers = { "Repère", "Type", "État", "cmd %MW=bit", "ret %MW=bit" };
 
@@ -100,17 +109,31 @@ public partial class ElementPanel : CanvasLayer
 
     // Une ligne d'interface par composant : son conteneur (pour la surbrillance) + les trois
     // cellules dynamiques (etat/cmd/ret) rafraichies a chaque Update. Repere et Type sont statiques.
+    // Cells = les 5 cellules dans l'ordre des colonnes, pour l'ajustement de largeur (AutoFitColumns).
     private sealed class Row
     {
         public required Component Comp;
         public required PanelContainer Container;
         public required Label Etat, Cmd, Ret;
+        public required Label[] Cells;
     }
 
     // Lignes indexees par id composant (pour HighlightRow) + liste ordonnee (pour Update dans
     // l'ordre du pivot). Les deux vues partagent les memes objets Row.
     private readonly Dictionary<string, Row> _rowsById = new();
     private readonly List<Row> _rows = new();
+
+    // Cellules d'entete (memes colonnes que les lignes), mesurees comme les autres dans AutoFitColumns.
+    private Label[] _headerCells = System.Array.Empty<Label>();
+
+    // Largeurs de colonnes COURANTES (grow-only) : partent des planchers ColWidths et ne font que
+    // croitre vers le contenu le plus large vu. Grow-only = pas de tremblement de largeur quand un
+    // texte d'etat court remplace un texte long d'une frame a l'autre.
+    private readonly int[] _colWidths = (int[])ColWidths.Clone();
+
+    // Fond ancre + poignee de redimensionnement, memorises pour le drag. _resizing = drag en cours.
+    private Panel _bg = null!;
+    private bool _resizing;
 
     /// <summary>
     /// Resout les signaux de coloration et cree une ligne par composant du pivot (ordre du pivot).
@@ -131,24 +154,38 @@ public partial class ElementPanel : CanvasLayer
         _sigB2 = TryResolve(pivot, "presence_station_2", "ret_active");
 
         // --- Fond ANCRE au bord droit, pleine hauteur (piege D-Q4 : aucune resolution en dur) ---
-        // Preset RightWide = ancre a droite sur toute la hauteur ; OffsetLeft = -PanelWidth fixe la
-        // largeur. MouseFilter = Stop => le fond consomme les clics (la camera n'orbite pas dessus).
-        var bg = new Panel { Name = "panel_bg", MouseFilter = Control.MouseFilterEnum.Stop };
-        bg.SetAnchorsPreset(Control.LayoutPreset.RightWide);
-        bg.OffsetLeft = -PanelWidth;
-        bg.AddThemeStyleboxOverride("panel", new StyleBoxFlat { BgColor = new Color(0f, 0f, 0f, 0.62f) });
-        AddChild(bg);
+        // Preset RightWide = ancre a droite sur toute la hauteur ; OffsetLeft = -_panelWidth fixe la
+        // largeur (variable au drag). MouseFilter = Stop => le fond consomme les clics (la camera
+        // n'orbite pas dessus).
+        _bg = new Panel { Name = "panel_bg", MouseFilter = Control.MouseFilterEnum.Stop };
+        _bg.SetAnchorsPreset(Control.LayoutPreset.RightWide);
+        _bg.OffsetLeft = -_panelWidth;
+        _bg.AddThemeStyleboxOverride("panel", new StyleBoxFlat { BgColor = new Color(0f, 0f, 0f, 0.62f) });
+        AddChild(_bg);
 
-        // Marge interieure + pile verticale des lignes. Les conteneurs heritent du MouseFilter Stop
-        // par defaut : les zones « vides » entre lignes consomment aussi les clics (camera protegee).
+        // Marge interieure. Les conteneurs heritent du MouseFilter Stop par defaut : les zones
+        // « vides » consomment aussi les clics (camera protegee).
         var margin = new MarginContainer();
         margin.SetAnchorsPreset(Control.LayoutPreset.FullRect);
         foreach (var side in new[] { "margin_left", "margin_top", "margin_right", "margin_bottom" })
             margin.AddThemeConstantOverride(side, 8);
-        bg.AddChild(margin);
+        _bg.AddChild(margin);
+
+        // --- Zone defilante (H + V) : rend lisibles les colonnes plus larges que le panneau -------
+        // ScrollContainer en mode Auto : la barre horizontale apparait des qu'une ligne depasse la
+        // largeur visible (colonne ret nommee, etat long...), la verticale des que les lignes
+        // depassent la hauteur (utile quand la machine generee aura beaucoup de composants). L'entete
+        // vit DANS la zone defilante, avec les lignes : elle scrolle horizontalement avec elles, ce
+        // qui garde les colonnes alignees sous leur titre.
+        var scroll = new ScrollContainer
+        {
+            HorizontalScrollMode = ScrollContainer.ScrollMode.Auto,
+            VerticalScrollMode = ScrollContainer.ScrollMode.Auto,
+        };
+        margin.AddChild(scroll);
 
         var list = new VBoxContainer();
-        margin.AddChild(list);
+        scroll.AddChild(list);
 
         // Entete : une ligne de cinq cellules aux memes largeurs que les lignes de donnees.
         list.AddChild(MakeHeaderRow());
@@ -162,8 +199,45 @@ public partial class ElementPanel : CanvasLayer
             _rowsById[comp.Id] = row;
         }
 
+        // --- Poignee de redimensionnement (bord GAUCHE du panneau) -----------------------------
+        // Bande fine ancree sur toute la hauteur du bord gauche, curseur « redimensionnement
+        // horizontal ». Ajoutee EN DERNIER (donc au-dessus de la marge) pour capter le drag sur ses
+        // 6 px. MouseFilter Stop => elle consomme le clic (ni scroll, ni orbite camera). Le drag est
+        // traite dans OnHandleGuiInput, qui deplace OffsetLeft du fond.
+        var handle = new Control
+        {
+            Name = "resize_handle",
+            MouseFilter = Control.MouseFilterEnum.Stop,
+            MouseDefaultCursorShape = Control.CursorShape.Hsize,
+        };
+        handle.SetAnchorsPreset(Control.LayoutPreset.LeftWide);
+        handle.OffsetRight = 6;
+        handle.GuiInput += OnHandleGuiInput;
+        _bg.AddChild(handle);
+
         // Trace deterministe pour le smoke-test headless : nombre de lignes = nombre de composants.
         GD.Print($"[panel] rows={_rows.Count}");
+    }
+
+    // --- Redimensionnement du panneau au drag de la poignee gauche -----------------------------
+
+    /// <summary>
+    /// Gere le glisser de la poignee gauche : bouton gauche enfonce = debut du drag, relache = fin ;
+    /// chaque mouvement ajuste la largeur du panneau (glisser vers la gauche = elargir). La largeur
+    /// est bornee entre <see cref="MinPanelWidth"/> et la largeur de la fenetre moins une marge, sans
+    /// jamais coder de resolution en dur. Applique la nouvelle largeur via l'OffsetLeft du fond.
+    /// </summary>
+    private void OnHandleGuiInput(InputEvent @event)
+    {
+        if (@event is InputEventMouseButton { ButtonIndex: MouseButton.Left } mb)
+            _resizing = mb.Pressed;
+        else if (@event is InputEventMouseMotion mm && _resizing)
+        {
+            // Relative.X < 0 quand on glisse vers la gauche => on SOUSTRAIT pour elargir a gauche.
+            float max = _bg.GetViewportRect().Size.X - 40f;
+            _panelWidth = Mathf.Clamp(_panelWidth - mm.Relative.X, MinPanelWidth, max);
+            _bg.OffsetLeft = -_panelWidth;
+        }
     }
 
     /// <summary>
@@ -181,6 +255,9 @@ public partial class ElementPanel : CanvasLayer
             row.Cmd.Text = ZoneAddresses(row.Comp, "cmd", cmd);
             row.Ret.Text = ZoneAddresses(row.Comp, "ret", ret);
         }
+
+        // Reajuste les largeurs de colonnes au contenu (aucune cellule tronquee, colonnes alignees).
+        AutoFitColumns();
 
         // Booleens exposes pour la coloration (Signal? => faux si le signal n'existe pas).
         Km1Aux = _sigKm1Aux is Signal s0 && s0.ReadBit(ret[s0.WordRel]);
@@ -273,17 +350,64 @@ public partial class ElementPanel : CanvasLayer
             ? s
             : null;
 
+    // --- Ajustement des largeurs de colonnes (grow-only, aligne toutes les lignes) ------------
+
+    /// <summary>
+    /// Ajuste la largeur minimale de chaque colonne au contenu le plus large (entete comprise),
+    /// puis applique cette meme largeur a toutes les cellules de la colonne — c'est ce qui GARDE les
+    /// colonnes ALIGNEES d'une ligne a l'autre une fois <c>ClipText</c> retire. Grow-only : les
+    /// largeurs ne descendent jamais sous ce qu'on a deja vu (ni sous <see cref="ColWidths"/>), pour
+    /// eviter tout tremblement quand un texte court remplace un texte long. Ce qui deborde du panneau
+    /// devient accessible via la barre de defilement horizontale.
+    /// </summary>
+    private void AutoFitColumns()
+    {
+        for (int c = 0; c < _colWidths.Length; c++)
+        {
+            int want = _colWidths[c];
+            if (c < _headerCells.Length)
+                want = System.Math.Max(want, MeasureTextWidth(_headerCells[c]));
+            foreach (var row in _rows)
+                want = System.Math.Max(want, MeasureTextWidth(row.Cells[c]));
+
+            if (want == _colWidths[c])
+                continue; // deja a la bonne largeur : rien a toucher (pas d'invalidation de layout)
+
+            _colWidths[c] = want;
+            if (c < _headerCells.Length)
+                _headerCells[c].CustomMinimumSize = new Vector2(want, 0);
+            foreach (var row in _rows)
+                row.Cells[c].CustomMinimumSize = new Vector2(want, 0);
+        }
+    }
+
+    // Largeur pixel du texte d'une cellule, mesuree directement sur la police du theme (independant
+    // de toute passe de layout, donc fiable des le premier Update). +4 px de garde pour ne pas raser
+    // le dernier glyphe. Police absente (theme pas encore pret) => 0, la colonne garde son plancher.
+    private static int MeasureTextWidth(Label lbl)
+    {
+        var font = lbl.GetThemeFont("font");
+        if (font is null)
+            return 0;
+        int fontSize = lbl.GetThemeFontSize("font_size");
+        float w = font.GetStringSize(lbl.Text, HorizontalAlignment.Left, -1, fontSize).X;
+        return Mathf.CeilToInt(w) + 4;
+    }
+
     // --- Construction de l'interface -------------------------------------------------------
 
     // Ligne d'entete : cinq Labels en gras a largeur fixe (pas de survol, pas de conteneur teinte).
+    // Les cellules sont memorisees dans _headerCells pour etre mesurees comme les lignes (alignement).
     private HBoxContainer MakeHeaderRow()
     {
         var hbox = new HBoxContainer { MouseFilter = Control.MouseFilterEnum.Ignore };
+        _headerCells = new Label[Headers.Length];
         for (int i = 0; i < Headers.Length; i++)
         {
             var lbl = MakeCell(Headers[i], ColWidths[i]);
             lbl.AddThemeColorOverride("font_color", new Color(0.75f, 0.85f, 1f));
             hbox.AddChild(lbl);
+            _headerCells[i] = lbl;
         }
         return hbox;
     }
@@ -305,7 +429,8 @@ public partial class ElementPanel : CanvasLayer
         var etat = MakeCell("…", ColWidths[2]);
         var cmdCell = MakeCell("…", ColWidths[3]);
         var retCell = MakeCell("…", ColWidths[4]);
-        foreach (var c in new[] { repere, type, etat, cmdCell, retCell })
+        var cells = new[] { repere, type, etat, cmdCell, retCell };
+        foreach (var c in cells)
             hbox.AddChild(c);
         container.AddChild(hbox);
 
@@ -315,19 +440,19 @@ public partial class ElementPanel : CanvasLayer
         container.MouseEntered += () => _onRowHover(id, true);
         container.MouseExited += () => _onRowHover(id, false);
 
-        return new Row { Comp = comp, Container = container, Etat = etat, Cmd = cmdCell, Ret = retCell };
+        return new Row { Comp = comp, Container = container, Etat = etat, Cmd = cmdCell, Ret = retCell, Cells = cells };
     }
 
-    // Une cellule = un Label a largeur minimale fixe (alignement des colonnes), texte tronque si
-    // trop long (ClipText) plutot que d'elargir la colonne. MouseFilter Ignore pour laisser le
-    // survol atteindre le conteneur de ligne (sinon le Label capterait l'event a sa place).
+    // Une cellule = un Label a largeur minimale fixe (le plancher d'alignement). PAS de ClipText :
+    // une cellule trop longue ELARGIT sa colonne (via AutoFitColumns) au lieu d'etre tronquee, et le
+    // debordement du panneau se lit a la barre de defilement horizontale. MouseFilter Ignore pour
+    // laisser le survol atteindre le conteneur de ligne (sinon le Label capterait l'event a sa place).
     private static Label MakeCell(string text, int width)
     {
         return new Label
         {
             Text = text,
             CustomMinimumSize = new Vector2(width, 0),
-            ClipText = true,
             MouseFilter = Control.MouseFilterEnum.Ignore,
         };
     }
