@@ -6,6 +6,19 @@ surpris, décisions prises (reportées dans memory.md), état des tests.
 
 ---
 
+## 2026-07-18 — Ouverture sprint 6 « Forçage de debug » (`/sprint open 06`)
+
+**Contexte** : conception figée (`f43a766`), 3 sous-sprints séquentiels stricts (aucun fichier
+partagé) : S6.1 cœur/headless → S6.2 UI/visuel → S6.3 démo/observable. Témoin de banc de départ
+vérifié par l'orchestrateur : **core 109 verts** (+ serveur 10 = 119). Orchestration autonome,
+un sous-agent cold-start par sous-sprint, banc re-vérifié avant chaque commit.
+
+**Objectif** : forcer depuis l'IHM la valeur **effective** d'un signal `cmd` (KM1/YV1/YV2) pour
+piloter sans PLC et malgré le PLC, **sans jamais écrire un mot du datastore** (masque à la lecture).
++ défaut `BlockerIneffective` + correction clavier AZERTY (`[`/`]` → `A`/`Z`). Clôture à suivre.
+
+---
+
 ## 2026-07-17 — Clôture sprint 5 « Injection de défauts » (`/sprint close 05`)
 
 **Contexte** : les 5 sous-sprints orchestrés par `/sprint open 05` sont livrés, committés et

@@ -96,6 +96,20 @@ Brief : `docs/sprints/sprint_01/overview.md`
   - [x] S5.5 — `demo_sprint_05.ps1` + sortie observable — observable, banc intact. — `7b9f62b`
     — amorce : `docs/sprints/sprint_05/brique_05_demo.md`
 
+## Phase 1sexies — Forçage de debug 🔄
+> Brief : `docs/sprints/sprint_06/overview.md`. Forcer depuis l'IHM la valeur **effective** d'un signal
+> `cmd` (KM1/YV1/YV2) pour piloter **sans PLC** et **malgré** le PLC, **sans jamais écrire un mot du
+> datastore** (masque à la **lecture**, en tête de `Tick`). Volet forçage de **D-016**. Pivot inchangé,
+> Arch A et boucle 10 Hz intactes.
+- 🔄 Sprint 6 : 3 sous-sprints séquentiels (`/sprint open 06`, ouvert 2026-07-18). Témoin de départ
+  core 109 + serveur 10 = 119 :
+  - [~] S6.1 — cœur : `BlockerIneffective` + `ForceSet` + application Tick — headless/xUnit, banc core re-figé.
+    — amorce : `docs/sprints/sprint_06/brique_01_core.md`
+  - [~] S6.2 — UI : colonne « Forçage » + écart cmd + touche `G` + correction AZERTY `A`/`Z` — visuel, banc inchangé.
+    — amorce : `docs/sprints/sprint_06/brique_02_ui.md`
+  - [~] S6.3 — `demo_sprint_06.ps1` (sans PLC + avec scan) — observable, banc inchangé.
+    — amorce : `docs/sprints/sprint_06/brique_03_demo.md`
+
 ## Phase 4 — Intégration M580 réelle ⏳
 > Piste **parallèle et indépendante** (la chaîne Modbus est prête ; le collègue automaticien clone le
 > repo et déroule). Numérotée « Phase 4 » — à ne pas confondre avec le **sprint 4** (ergonomie ci-dessus).
