@@ -61,12 +61,12 @@ faire tourner le convoyeur → une palette **traverse** la tige levée (B1 monte
 
 ## Definition of Done (cochable)
 
-- [ ] `runtime/scripts/demo_sprint_06.ps1` créé, ASCII pur, pré-vol 502, mode interactif/auto.
-- [ ] Phases **sans io_scanner** (pilotage IHM pur) **et** phases **avec scan** (forçage gagne + KM1_AUX
-      non commandé) présentes et guidées (A FAIRE / A REGARDER).
-- [ ] Phase `BlockerIneffective` présente.
-- [ ] Le script **ne modifie aucun code C#** ; banc **inchangé** ; build Godot **inchangé**.
-- [ ] Clôture : rappel de remettre tous les forçages à Auto et de réparer les défauts.
+- [x] `runtime/scripts/demo_sprint_06.ps1` créé, ASCII pur (confirmé), pré-vol 502, mode interactif/auto.
+- [x] Phases **sans io_scanner** (P1-2 : pilotage IHM pur, `-NoScan`) **et** phases **avec scan** (P3
+      forçage gagne, P4 KM1_AUX non commandé, P5 forçage à 0, P6 composition, P7 bloqueur inefficace).
+- [x] Phase `BlockerIneffective` présente (P7).
+- [x] Le script **ne modifie aucun code C#** (vérifié `git status`) ; banc **inchangé** ; build Godot **inchangé**.
+- [x] Clôture : rappel de remettre tous les forçages à Auto et de réparer les défauts.
 
 ## Vérif autosuffisante
 

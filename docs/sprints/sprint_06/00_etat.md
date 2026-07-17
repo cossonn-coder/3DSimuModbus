@@ -3,15 +3,17 @@
 > Tenu à jour à **chaque décision arrêtée**. Reprise à froid = relire `CLAUDE.md` + ce fichier.
 
 ## Phase courante
-**Conception FIGÉE (2026-07-18).** Phase B livrée : `overview.md` + 3 amorces (`brique_01/02/03`).
-Prêt pour `/sprint open 06`. Ce carnet est désormais tenu à jour par chaque sous-sprint pendant l'exécution.
+**EXÉCUTION TERMINÉE (2026-07-18).** Les 3 sous-sprints sont livrés, vérifiés et committés
+(S6.1 `0fb75ea`, S6.2 `8005d7b`, S6.3 à committer). Prêt pour la clôture (`/sprint close 06`).
 
 ## Carte des sous-sprints (séquentiels stricts, aucun fichier partagé)
 - **S6.1** `brique_01_core.md` — [core/headless] `BlockerIneffective` + `ForceSet` + application Tick.
   Banc core **re-figé 109 → 121** (+12). **LIVRÉ (2026-07-17)**, DoD cochée, build 0 erreur.
 - **S6.2** `brique_02_ui.md` — [visuel] colonne Forçage + écart cmd + touche `G` + AZERTY `A`/`Z`.
   Banc inchangé. Dépend de S6.1. **LIVRÉ (2026-07-17)**, DoD cochée, build Godot 0 erreur.
-- **S6.3** `brique_03_demo.md` — [observable] `demo_sprint_06.ps1` (sans PLC + avec scan). Dépend de S6.2. → à cocher.
+- **S6.3** `brique_03_demo.md` — [observable] `demo_sprint_06.ps1` (8 phases : 2 sans PLC + 5 avec scan
+  + retour nominal). **LIVRÉ (2026-07-18)** : exécution à blanc = refus propre du pré-vol 502 (exit 1,
+  zéro erreur parseur), ASCII pur confirmé, aucun `.cs` touché. Dépend de S6.2. Banc inchangé.
 
 ## Intention (rappel amorce)
 Forcer depuis l'IHM la valeur **effective** d'un signal de commande (`cmd` : KM1 run, YV1, YV2)
