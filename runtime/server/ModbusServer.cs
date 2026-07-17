@@ -154,6 +154,23 @@ public sealed class ModbusServer : IDisposable
     /// </summary>
     public void Start()
     {
+        // AddUnit AVANT le premier Start : le buffer est alloue par unite ; sans cette
+        // declaration le serveur refermerait toute connexion ciblant unit_id=1. Le spike S5.4
+        // a montre que l'unite (et son buffer) SURVIT a un Stop()/Start() ulterieur : on ne la
+        // redeclare donc PAS dans Reconnect (voir StartListening / Reconnect ci-dessous).
+        _server.AddUnit(_unitId);
+
+        StartListening();
+    }
+
+    /// <summary>
+    /// Pre-vol du port + demarrage effectif de l'ecoute FluentModbus, PARTAGE par <see cref="Start"/>
+    /// (premier demarrage) et <see cref="Reconnect"/> (re-armement apres <see cref="Disconnect"/>).
+    /// Ne touche PAS a AddUnit : l'unite est declaree une seule fois par Start et persiste (spike S5.4).
+    /// Positionne <see cref="_isListening"/> a true seulement si le bind reussit ; sinon leve.
+    /// </summary>
+    private void StartListening()
+    {
         var endpoint = new IPEndPoint(_bind, _port);
 
         // --- Pre-vol du port (solde la dette D-013) -----------------------------------------
@@ -164,6 +181,7 @@ public sealed class ModbusServer : IDisposable
         // de FluentModbus, synchrone ou non) — c'est le meme filet que demo_sprint_02.ps1 pose
         // deja en externe, ramene DANS l'app. Fenetre de course Stop()->Start() negligeable
         // pour un demonstrateur mono-poste, et FluentModbus est de toute facon enveloppe ci-dessous.
+        // Ce meme pre-vol vaut aussi pour Reconnect (D-013 : un re-bind qui echoue est VISIBLE).
         var probe = new TcpListener(_bind, _port);
         try
         {
@@ -179,10 +197,6 @@ public sealed class ModbusServer : IDisposable
             probe.Stop();
         }
 
-        // AddUnit AVANT Start : le buffer est alloue par unite ; sans cette declaration le
-        // serveur refermerait toute connexion ciblant unit_id=1.
-        _server.AddUnit(_unitId);
-
         // Filet de securite : si malgre le pre-vol FluentModbus echouait a lier (course, autre
         // cause reseau), on enveloppe pareil plutot que de laisser fuiter une exception opaque.
         try
@@ -196,6 +210,39 @@ public sealed class ModbusServer : IDisposable
         }
 
         _isListening = true;
+    }
+
+    /// <summary>
+    /// Coupure TCP volontaire (S5.4, defaut de comm « perte de l'esclave ») : arrete l'ecoute et
+    /// ferme les connexions clients. L'I/O Scanner du M580 passe alors en DEFAUT DE SCRUTATION —
+    /// distinct d'un simple gel de donnees (RetFrozen). <see cref="IsListening"/> repasse a false.
+    /// Idempotent : deja deconnecte ⇒ no-op (pas de double Stop). La simulation, elle, continue
+    /// de tourner cote scene (la 3D bouge) ; c'est <see cref="Reconnect"/> qui retablit le transport.
+    /// </summary>
+    public void Disconnect()
+    {
+        if (!_isListening)
+            return;
+
+        _isListening = false;
+        _server.Stop();
+    }
+
+    /// <summary>
+    /// Retablit l'ecoute apres un <see cref="Disconnect"/> (« Reparer » cote IHM). Le spike S5.4 a
+    /// confirme qu'un ModbusTcpServer FluentModbus 5.3.2 se REARME sur la MEME instance : Stop()
+    /// puis Start(endpoint) re-ouvrent le port, l'unite et son buffer sont conserves, un client se
+    /// reconnecte et relit les registres — inutile de recreer l'instance ni de rappeler AddUnit.
+    /// Idempotent : deja a l'ecoute ⇒ no-op. Peut lever <see cref="ModbusServerException"/> si le
+    /// re-bind du port echoue (port repris entre-temps) : l'exception est REMONTEE (D-013), jamais
+    /// avalee — l'appelant (HUD) l'affiche comme l'echec de bind initial.
+    /// </summary>
+    public void Reconnect()
+    {
+        if (_isListening)
+            return;
+
+        StartListening();
     }
 
     /// <summary>
@@ -226,6 +273,13 @@ public sealed class ModbusServer : IDisposable
     /// </summary>
     public void PullCommands()
     {
+        // Garde S5.4 : hors ecoute (TCP coupe volontairement, ou bind jamais reussi), le buffer
+        // FluentModbus n'est pas servable — GetHoldingRegisters sur un serveur arrete leverait.
+        // On sort en no-op pour que StepSim (physique + heartbeat interne) continue de tourner
+        // pendant la coupure sans exception : la 3D bouge, mais plus rien ne transite sur le fil.
+        if (!_isListening)
+            return;
+
         // Ordre de verrous : server.Lock (externe) PUIS le verrou interne du datastore
         // (pris par WriteCommandsFromWire). Toujours dans ce sens, jamais l'inverse.
         lock (_server.Lock)
@@ -250,6 +304,12 @@ public sealed class ModbusServer : IDisposable
     /// </summary>
     public void PushReturns()
     {
+        // Meme garde que PullCommands : hors ecoute, pas de buffer a alimenter. La sim a tout de
+        // meme prepare ses retours (heartbeat interne inclus), simplement personne ne les lit —
+        // coherent avec « perte de l'esclave » cote M580 (message pedagogique S5.4).
+        if (!_isListening)
+            return;
+
         lock (_server.Lock)
         {
             Span<short> buffer = _server.GetHoldingRegisters(_unitId);

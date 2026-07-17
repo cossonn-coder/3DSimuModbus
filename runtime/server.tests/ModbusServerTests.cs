@@ -240,4 +240,98 @@ public class ModbusServerTests
             ctx.Pivot.UnitId, ctx.Pivot.GetZone("ret").Base + 1, 1);
         Assert.Equal((ushort)0x1234, readBig[0]);
     }
+
+    // =====================================================================
+    // 4. Coupure TCP volontaire (S5.4) : Disconnect / Reconnect
+    // =====================================================================
+    //
+    // Verdict du SPIKE FluentModbus 5.3.2 (documente dans NOTES + memory) : un ModbusTcpServer
+    // se REARME sur la MEME instance apres Stop()/Start() — port re-ouvert, unite et buffer
+    // conserves, client reconnectable, AddUnit inutile a rearmer. Disconnect=Stop, Reconnect=Start.
+    // Ces tests verrouillent la nouvelle capacite transport (le defaut de comm « perte de l'esclave »).
+
+    // IsListening suit Disconnect (false) puis Reconnect (true). Coeur du contrat transport S5.4.
+    [Fact]
+    public void Disconnect_coupe_l_ecoute_reconnect_la_retablit()
+    {
+        using var ctx = Start();
+        Assert.True(ctx.Server.IsListening);   // etat initial : a l'ecoute
+
+        ctx.Server.Disconnect();
+        Assert.False(ctx.Server.IsListening);  // ecoute coupee (I/O Scanner perd l'esclave)
+
+        ctx.Server.Reconnect();
+        Assert.True(ctx.Server.IsListening);   // ecoute retablie apres « Reparer »
+    }
+
+    // Idempotence : un 2e Disconnect (ou un 2e Reconnect) ne fait rien et ne leve pas. L'IHM
+    // (toggle) peut donc appeler sans se soucier de l'etat courant.
+    [Fact]
+    public void Disconnect_et_reconnect_sont_idempotents()
+    {
+        using var ctx = Start();
+
+        ctx.Server.Disconnect();
+        ctx.Server.Disconnect();               // 2e coupure : no-op, pas d'exception
+        Assert.False(ctx.Server.IsListening);
+
+        ctx.Server.Reconnect();
+        ctx.Server.Reconnect();                // 2e reconnexion : no-op, pas d'exception
+        Assert.True(ctx.Server.IsListening);
+    }
+
+    // Garde des no-op Pull/Push hors ecoute : StepSim doit pouvoir continuer a tourner pendant la
+    // coupure sans qu'un GetHoldingRegisters d'un serveur arrete ne leve. On publie des retours,
+    // on coupe, puis on appelle Pull/Push : aucune exception ne doit fuiter.
+    [Fact]
+    public void Pull_et_push_hors_ecoute_ne_levent_pas()
+    {
+        using var ctx = Start();
+        ctx.Store.PublishReturns(new ushort[] { 0x00AB, 0x0001 });
+
+        ctx.Server.Disconnect();
+
+        // Les deux doivent etre de simples no-op (pas d'acces buffer) — l'absence d'exception EST
+        // l'assertion. On les appelle plusieurs fois comme le ferait la boucle physique.
+        var ex = Record.Exception(() =>
+        {
+            for (int i = 0; i < 3; i++)
+            {
+                ctx.Server.PullCommands();
+                ctx.Server.PushReturns();
+            }
+        });
+        Assert.Null(ex);
+    }
+
+    // Bout-en-bout : un client PERD la connexion apres Disconnect (une nouvelle connexion est
+    // refusee), puis PEUT se reconnecter et relire les registres apres Reconnect. C'est la preuve
+    // concrete de « perte de l'esclave » puis « rescrutation » cote M580 (validation manuelle Nico).
+    [Fact]
+    public void Client_perd_la_connexion_puis_se_reconnecte_apres_reparation()
+    {
+        using var ctx = Start();
+
+        // Etat nominal : le serveur publie un retour, un client le lit.
+        ctx.Store.PublishReturns(new ushort[] { 0x0000, 0x1234 });
+        ctx.Server.PushReturns();
+        int retBase = ctx.Pivot.GetZone("ret").Base;
+        using (var before = Connect(ctx.Port, ModbusEndianness.BigEndian))
+        {
+            Span<ushort> read = before.ReadHoldingRegisters<ushort>(ctx.Pivot.UnitId, retBase + 1, 1);
+            Assert.Equal((ushort)0x1234, read[0]);
+        }
+
+        // Coupure TCP : une NOUVELLE connexion doit desormais echouer (port ferme).
+        ctx.Server.Disconnect();
+        Assert.ThrowsAny<Exception>(() => Connect(ctx.Port, ModbusEndianness.BigEndian));
+
+        // « Reparer » : le serveur re-ecoute. Un client se reconnecte et relit la MEME valeur
+        // (unite + buffer conserves sur la meme instance, verdict du spike).
+        ctx.Server.Reconnect();
+        ctx.Server.PushReturns();   // republie apres re-ouverture (buffer neuf servi par FluentModbus)
+        using var after = Connect(ctx.Port, ModbusEndianness.BigEndian);
+        Span<ushort> readAfter = after.ReadHoldingRegisters<ushort>(ctx.Pivot.UnitId, retBase + 1, 1);
+        Assert.Equal((ushort)0x1234, readAfter[0]);
+    }
 }

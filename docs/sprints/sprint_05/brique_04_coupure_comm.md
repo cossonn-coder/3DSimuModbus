@@ -60,15 +60,17 @@ Documenter le verdict dans le NOTES et dans `docs/memory.md` (comme les autres d
   restent intacts ; le mode aveugle (S5.3) ne masque **pas** l'état comm du HUD.
 
 ## Definition of Done (cochable)
-- [ ] Spike FluentModbus tranché et documenté (réutilisable ou recréation).
-- [ ] `Disconnect()`/`Reconnect()` implémentés ; `Pull/Push` no-op hors écoute ; `StepSim` ne lève
-  pas pendant la déconnexion.
-- [ ] Bouton « Couper TCP » : un client (pymodbus/io_scanner_sim) **perd la connexion** puis
-  **peut se reconnecter** après « Réparer ». Bouton « Geler retours » : `ret`/heartbeat figés
-  côté client, TCP toujours vivant.
-- [ ] Tests xUnit serveur : déconnexion coupe l'écoute (`IsListening==false`), reconnexion la
-  rétablit (`IsListening==true`) ; un `Pull/Push` hors écoute ne lève pas.
-- [ ] Build Godot 0 erreur ; smoke inchangé.
+- [x] Spike FluentModbus tranché et documenté (**réutilisable** : `Stop()`/`Start()` sur la même
+  instance, unité+buffer conservés — cf. `docs/memory.md` 2026-07-17).
+- [x] `Disconnect()`/`Reconnect()` implémentés ; `Pull/Push` no-op hors écoute ; `StepSim` ne lève
+  pas pendant la déconnexion (test xUnit `Pull_et_push_hors_ecoute_ne_levent_pas`).
+- [~] Bouton « Couper TCP » : un client **perd la connexion** puis **peut se reconnecter** après
+  « Réparer » — **prouvé en xUnit** (`Client_perd_la_connexion_puis_se_reconnecte_apres_reparation`) ;
+  **validation manuelle F5 + `io_scanner_sim.py` restante** (UI Godot). Bouton « Geler retours » :
+  `ret`/heartbeat figés côté client, TCP vivant (gel modélisé S5.1, interrupteur UI branché).
+- [x] Tests xUnit serveur : déconnexion coupe l'écoute (`IsListening==false`), reconnexion la
+  rétablit (`IsListening==true`) ; un `Pull/Push` hors écoute ne lève pas. **Serveur 6 → 10 (+4).**
+- [x] Build Godot 0 erreur ; smoke inchangé (core 109, 4 pytest full-chain skippent = nominal).
 
 ## Banc attendu — **re-figé (banc serveur)**
 Le banc **serveur** (xUnit `server.tests`) passe de son total actuel à **+M** (tests

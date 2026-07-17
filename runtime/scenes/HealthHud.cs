@@ -21,8 +21,18 @@
 //   - _sim.Heartbeat            (ushort, ecrit par le tick physique, meme thread)
 //   - _server.IsListening       (bool, ecrit a Start sur le meme thread)
 //   - _server.LastClientWriteUtc(compose atomiquement via Interlocked cote serveur)
-// AUCUNE ecriture cmd, AUCUNE lecture du datastore, AUCUN acces au scene tree 3D.
-// La frontiere Arch A reste donc intacte : le HUD observe, il ne pilote rien.
+// AUCUNE lecture du datastore, AUCUN acces au scene tree 3D : la frontiere Arch A tient.
+//
+// --- S5.4 : le HUD PILOTE desormais deux defauts de comm GLOBAUX (pas seulement observer) ----
+// Nouveaute : deux boutons injectent un defaut de communication, tous deux actionnes sur le
+// THREAD PRINCIPAL Godot (les signaux d'UI Godot firent sur ce thread) — donc sans partage
+// inter-thread avec le thread serveur FluentModbus :
+//   - « Geler retours » -> _sim.Faults.RetFrozen (la sim cesse de publier ret + heartbeat ;
+//     le M580 lit toujours, mais des donnees figees => son watchdog reagit) ;
+//   - « Couper TCP »    -> _server.Disconnect()/Reconnect() (perte de l'esclave cote I/O Scanner).
+// Le HUD pilote donc le SERVEUR et le FaultSet, mais TOUJOURS PAS le datastore ni le scene tree :
+// la frontiere Arch A (« la glue ne touche pas les internes thread-safe ») reste respectee. Un
+// re-bind qui echoue a la reconnexion est REMONTE via le bandeau (D-013), jamais avale.
 //
 // --- Cadence de rafraichissement -------------------------------------------------------
 // Le texte est rafraichi a BASSE cadence (~5 Hz) via un accumulateur sur _Process(delta),
@@ -60,6 +70,14 @@ public partial class HealthHud : CanvasLayer
     private Panel _healthPanel = null!;
     private Label _healthLabel = null!;
 
+    // --- Contrometrie de comm (S5.4) : deux toggles injectant un defaut de communication ------
+    // Toujours visibles (non masques par ShowHud) : un defaut de comm ACTIF ne doit jamais etre
+    // cache, au meme titre que le bandeau d'echec (invariant « une panne ne se cache pas »). Leur
+    // etat enfonce = defaut actif, ce qui rend l'injection lisible sans lire le M580.
+    private Panel _commPanel = null!;
+    private CheckButton _freezeButton = null!;   // « Geler retours » -> RetFrozen
+    private CheckButton _cutButton = null!;       // « Couper TCP »   -> Disconnect/Reconnect
+
     // Accumulateur du rafraichissement basse cadence (secondes). Voir _Process.
     private double _refreshAccumulator;
     private const double RefreshPeriodS = 0.2;   // ~5 Hz
@@ -78,6 +96,7 @@ public partial class HealthHud : CanvasLayer
     {
         BuildErrorBanner();
         BuildHealthPanel();
+        BuildCommControls();
     }
 
     /// <summary>
@@ -155,7 +174,73 @@ public partial class HealthHud : CanvasLayer
             plcLine = $"PLC : dernière trame il y a {ms:F0} ms";
         }
 
-        _healthLabel.Text = serverLine + "\n" + heartbeatLine + "\n" + plcLine;
+        // Ligne comm (S5.4) : etat combine des deux defauts de comm globaux. On distingue « TCP
+        // coupe » (plus d'ecoute, mais pas un echec de bind) de « ret fige » (TCP vivant, donnees
+        // immobiles). Les deux peuvent coexister. Regle D-Q3 : ne jamais mentir sur l'etat comm.
+        _healthLabel.Text = serverLine + "\n" + heartbeatLine + "\n" + plcLine + "\n" + CommStatusLine();
+    }
+
+    /// <summary>
+    /// Compose la ligne d'etat comm (S5.4) a partir des deux defauts globaux : gel <c>ret</c>
+    /// (<see cref="CarrouselSimulation"/>.<c>Faults.RetFrozen</c>) et coupure TCP (deduite de
+    /// <c>!IsListening</c> hors echec de bind). Les deux sont independants et cumulables ; l'echec
+    /// de bind au demarrage prime (le serveur n'a jamais ecoute — il n'y a pas de comm a qualifier).
+    /// </summary>
+    private string CommStatusLine()
+    {
+        if (_serverFailed)
+            return "comm : serveur KO";
+
+        bool retFrozen = _sim.Faults.RetFrozen;
+        bool tcpCut = !_server.IsListening;   // hors _serverFailed (traite ci-dessus) => coupure volontaire
+
+        if (tcpCut && retFrozen)
+            return "comm : TCP coupé + ret figé";
+        if (tcpCut)
+            return "comm : TCP coupé (perte de l'esclave)";
+        if (retFrozen)
+            return "comm : ret figé (heartbeat immobile)";
+        return "comm : nominal";
+    }
+
+    // --- Handlers des deux toggles de comm (S5.4) ----------------------------------------------
+
+    /// <summary>
+    /// « Geler retours » : branche l'interrupteur UI sur le defaut deja modelise cote sim (S5.1).
+    /// Le gel est enforce DANS la simulation (elle cesse d'incrementer le heartbeat et de publier
+    /// ret) — ici on ne fait QUE positionner le drapeau, sur le thread principal. Le M580 continue
+    /// de lire un fil vivant mais fige : c'est son watchdog applicatif qui doit reagir.
+    /// </summary>
+    private void OnFreezeToggled(bool pressed)
+    {
+        _sim.Faults.RetFrozen = pressed;
+    }
+
+    /// <summary>
+    /// « Couper TCP » : defaut de TRANSPORT (couche serveur, distincte du gel de donnees). Enfonce
+    /// => <see cref="ModbusServer.Disconnect"/> ferme l'ecoute (l'I/O Scanner perd l'esclave) ;
+    /// relache (« Reparer ») => <see cref="ModbusServer.Reconnect"/> re-ouvre le port. Un re-bind
+    /// qui echoue (port repris) leve une <see cref="ModbusServerException"/> : on la REMONTE via le
+    /// bandeau (D-013, jamais avalee) et on RE-ENFONCE le bouton sans re-emettre le signal
+    /// (SetPressedNoSignal) — on ne pretend pas avoir retabli une comm qui ne l'est pas.
+    /// </summary>
+    private void OnCutToggled(bool pressed)
+    {
+        if (pressed)
+        {
+            _server.Disconnect();
+            return;
+        }
+
+        try
+        {
+            _server.Reconnect();
+        }
+        catch (ModbusServerException ex)
+        {
+            ShowBindFailure(ex.Message);
+            _cutButton.SetPressedNoSignal(true);   // reste « coupe » : la reparation a echoue
+        }
     }
 
     // --- Construction de l'interface -----------------------------------------------------
@@ -192,7 +277,7 @@ public partial class HealthHud : CanvasLayer
         _healthPanel = new Panel
         {
             Position = new Vector2(8, 8),
-            Size = new Vector2(300, 84),
+            Size = new Vector2(300, 104),   // S5.4 : +1 ligne (etat comm) => panneau un peu plus haut
         };
         _healthPanel.AddThemeStyleboxOverride("panel", new StyleBoxFlat { BgColor = new Color(0f, 0f, 0f, 0.55f) });
 
@@ -205,5 +290,37 @@ public partial class HealthHud : CanvasLayer
         _healthPanel.AddChild(_healthLabel);
 
         AddChild(_healthPanel);
+    }
+
+    /// <summary>
+    /// Contrometrie de comm (S5.4) : un petit panneau sous le panneau santé, avec deux CheckButton
+    /// (toggles) pour injecter les deux defauts de communication globaux. TOUJOURS visible (pas de
+    /// gate ShowHud) : un defaut de comm actif reste toujours a l'ecran, comme le bandeau d'echec.
+    /// Position/taille en dur PUREMENT COSMETIQUES (mobilier d'ecran hors pivot). Les CheckButton
+    /// sont en mode toggle : leur signal Toggled fournit directement l'etat enfonce/relache.
+    /// </summary>
+    private void BuildCommControls()
+    {
+        _commPanel = new Panel
+        {
+            Position = new Vector2(8, 120),   // juste sous le panneau santé (haut-gauche)
+            Size = new Vector2(300, 78),
+        };
+        _commPanel.AddThemeStyleboxOverride("panel", new StyleBoxFlat { BgColor = new Color(0f, 0f, 0f, 0.55f) });
+
+        // VBox pour empiler les deux toggles proprement, avec une petite marge interne.
+        var box = new VBoxContainer { Position = new Vector2(10, 8), Size = new Vector2(280, 62) };
+
+        _freezeButton = new CheckButton { Text = "Geler retours (ret figé)" };
+        _freezeButton.Toggled += OnFreezeToggled;
+
+        _cutButton = new CheckButton { Text = "Couper TCP (perte esclave)" };
+        _cutButton.Toggled += OnCutToggled;
+
+        box.AddChild(_freezeButton);
+        box.AddChild(_cutButton);
+        _commPanel.AddChild(box);
+
+        AddChild(_commPanel);
     }
 }
