@@ -55,15 +55,17 @@ ligne + colonne « Défaut »), câblé au `FaultSet` (S5.1). Marquer visiblemen
   serveur ne se cache pas) — hors périmètre ici, mais à ne pas régresser.
 
 ## Definition of Done (cochable)
-- [ ] Chaque ligne du panneau a un MenuButton listant les modes applicables à son type + « Réparer ».
-- [ ] Déclencher un mode injecte le défaut (comportement sim visible : ex. « vérin ne sort pas » ⇒
+- [x] Chaque ligne du panneau a un MenuButton listant les modes applicables à son type + « Réparer ».
+  *(peuplé à l'ouverture via `AboutToPopup` depuis `FaultCatalog.ApplicableTo` + « Réparer » si défaut actif ; F5 pour l'œil.)*
+- [x] Déclencher un mode injecte le défaut (comportement sim visible : ex. « vérin ne sort pas » ⇒
   la tige ne monte plus ; « capteur B1 bloqué à 1 » ⇒ fenêtre B1 allumée en permanence).
-- [ ] Colonne « Défaut » + marqueur 3D rouge apparaissent sur l'élément faulté ; « Réparer »
-  (menu ou touche `R`) rétablit le nominal.
-- [ ] Touche `B` bascule le mode aveugle : marquages masqués, **défaut toujours actif** ;
-  indicateur « MODE AVEUGLE » visible.
-- [ ] Smoke inchangé (`rows` peut passer à 5 lignes, colonnes = 6 ; annoncer le nouveau format si
-  le smoke lit le nombre de colonnes — sinon inchangé).
+  *(câblé `IndexPressed`→`_onFault`→`_sim.Faults.Apply` ; effet sim déjà couvert par S5.1, à confirmer à l'œil en F5.)*
+- [x] Colonne « Défaut » + marqueur 3D rouge apparaissent sur l'élément faulté ; « Réparer »
+  (menu ou touche `R`) rétablit le nominal. *(colonne via `FaultLabelById` ; rouge via `RefreshEmission`, priorité défaut.)*
+- [x] Touche `B` bascule le mode aveugle : marquages masqués, **défaut toujours actif** ;
+  indicateur « MODE AVEUGLE » visible. *(`ToggleBlindMode` + `SetBlindMode` ; `FaultLabelById` renvoie « — » ; émission ignore le défaut.)*
+- [x] Smoke inchangé (`rows` reste à 5 lignes ; colonnes = 6 mais le smoke ne lit que `[panel] rows=5`,
+  donc **inchangé**).
 
 ## Banc attendu — **inchangé**
 Glue Godot lecture/écriture-sim **sur le thread principal**, zéro modif core/serveur : xUnit

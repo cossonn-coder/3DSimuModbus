@@ -155,6 +155,12 @@ public partial class CarrouselScene : Node3D
     private static readonly Color HighlightSelectEmission = new(0.20f, 0.95f, 1.00f);   // halo cyan
     private const float SelectEnergy = 1.0f;
 
+    // Marqueur de DEFAUT (S5.3) : rouge soutenu, priorite maximale dans RefreshEmission (defaut >
+    // selection > survol). Meme canal EMISSION que les autres etats (jamais l'albedo/D-arch). Le
+    // mode aveugle (_blindMode) l'ignore : le defaut reste injecte, seul l'indice visuel disparait.
+    private static readonly Color FaultEmission = new(1.00f, 0.20f, 0.15f);   // halo rouge : element faulte
+    private const float FaultEnergy = 1.3f;
+
     // --- Etat de survol / selection (S5.2) : deux etats INDEPENDANTS, un seul id chacun -----------
     // Le pointeur est unique donc au plus UN element survole a la fois ; la selection est unique par
     // construction (un clic la deplace). On garde ces deux ids pour que RefreshEmission arbitre la
@@ -167,6 +173,15 @@ public partial class CarrouselScene : Node3D
     // _Ready pour le cyclage clavier ]/[ . Meme ordre que les lignes du panneau : la selection
     // clavier et la selection au clic parcourent donc la meme sequence d'elements (symetrie).
     private string[] _componentIds = System.Array.Empty<string>();
+
+    // --- Injection de defauts (S5.3) ---------------------------------------------------------------
+    // _blindMode : quand vrai, le marquage 3D rouge ET le badge « Défaut » du panneau sont masques
+    // (touche B) alors que les defauts restent REELLEMENT injectes dans la sim (comportement anormal
+    // conserve). _components : reference LECTURE SEULE des composants du pivot, gardee pour resoudre
+    // le libelle d'un defaut actif (tag des signaux bloques) dans FaultLabelById, sans relire le pivot.
+    private bool _blindMode;
+    private System.Collections.Generic.IReadOnlyDictionary<string, Component> _components =
+        new System.Collections.Generic.Dictionary<string, Component>();
 
     public override void _Ready()
     {
@@ -271,6 +286,7 @@ public partial class CarrouselScene : Node3D
         // Ordre du pivot fige pour le cyclage clavier de la selection (S5.2), avant de peupler le
         // panneau qui itere le meme dictionnaire dans le meme ordre.
         _componentIds = new System.Collections.Generic.List<string>(pivot.Components.Keys).ToArray();
+        _components = pivot.Components;   // S5.3 : lookup id -> Component pour resoudre les libelles de defaut
 
         _panel = new ElementPanel();
         AddChild(_panel);
@@ -278,7 +294,10 @@ public partial class CarrouselScene : Node3D
         // SetHover (survol ligne -> 3D), SetSelected (clic ligne -> selection), et le routeur de
         // position de verin par id. La selection est ainsi symetrique : clic 3D et clic de ligne
         // convergent vers la meme source unique SetSelected.
-        _panel.Build(pivot, SetHover, SetSelected, CylinderPositionById);
+        // S5.3 ajoute deux delegues : OnFault (menu -> ecriture dans _sim.Faults) et FaultLabelById
+        // (libelle du/des defaut(s) actif(s) d'un element, masque par le mode aveugle). Le panneau
+        // reste generique : il ne connait ni le carrousel ni le modele de defaut, seulement ces ponts.
+        _panel.Build(pivot, SetHover, SetSelected, CylinderPositionById, OnFault, FaultLabelById);
     }
 
     /// <summary>
@@ -326,7 +345,10 @@ public partial class CarrouselScene : Node3D
     /// Resolveur d'emission par PRIORITE (S5.2) pour un element donne : selectionne (cyan) prime sur
     /// survole (bleu), qui prime sur repos (energie nulle). C'est le seul endroit qui ECRIT l'emission ;
     /// <see cref="SetHover"/> et <see cref="SetSelected"/> ne font que muter l'etat puis appeler ceci
-    /// sur les ids concernes. (S5.3 y ajoutera la priorite defaut (rouge) > selection > survol.)
+    /// sur les ids concernes. S5.3 a ajoute la priorite defaut (ROUGE) > selection (cyan) > survol (bleu) :
+    /// un element faulte s'affiche en rouge quel que soit son etat de survol/selection — SAUF en mode
+    /// aveugle (<see cref="_blindMode"/>), ou l'etat defaut est ignore (le defaut reste injecte, seul
+    /// l'indice visuel disparait) et l'element retombe sur sa selection/survol/repos.
     ///
     /// On ne touche QUE couleur + energie d'emission (des UNIFORMES du shader), jamais EmissionEnabled.
     /// Raison perf (regression corrigee) : basculer EmissionEnabled est un changement de FEATURE du
@@ -340,7 +362,14 @@ public partial class CarrouselScene : Node3D
         if (id is null || !_highlightMat.TryGetValue(id, out var mat))
             return;
 
-        if (_selectedId == id)
+        // Priorite defaut (rouge) : un element faulte prime tout, sauf si le mode aveugle masque le
+        // marquage (le defaut reste actif dans la sim, on n'en montre juste plus rien).
+        if (_sim.Faults.HasAnyFault(id) && !_blindMode)
+        {
+            mat.Emission = FaultEmission;
+            mat.EmissionEnergyMultiplier = FaultEnergy;
+        }
+        else if (_selectedId == id)
         {
             mat.Emission = HighlightSelectEmission;
             mat.EmissionEnergyMultiplier = SelectEnergy;
@@ -359,10 +388,11 @@ public partial class CarrouselScene : Node3D
     /// <summary>
     /// Entree souris/clavier de la scene (S5.2), lue dans _UnhandledInput : le panneau (MouseFilter=Stop)
     /// CONSOMME ses propres clics avant nous, donc un clic de ligne passe par le panneau (pas ici) et il
-    /// n'y a pas de double-selection. Deux gestes : (a) clic gauche RELACHE non consomme -> selectionne
+    /// n'y a pas de double-selection. Gestes : (a) clic gauche RELACHE non consomme -> selectionne
     /// l'element sous le curseur (<see cref="_hoveredId"/>), ou deselectionne si le vide ; (b) touches
-    /// ]/[ -> cyclage de la selection dans l'ordre du pivot. On cohabite avec OrbitCamera (qui ne lit
-    /// que molette/bouton du milieu/F11) : nos touches et le clic gauche ne sont pas les siens.
+    /// ]/[ -> cyclage de la selection dans l'ordre du pivot ; (c, S5.3) B -> mode aveugle, R -> reparer
+    /// la selection, F/Espace -> ouvrir le menu de defauts de la selection. On cohabite avec OrbitCamera
+    /// (qui ne lit que molette/bouton du milieu/F11) : nos touches et le clic gauche ne sont pas les siens.
     /// </summary>
     public override void _UnhandledInput(InputEvent @event)
     {
@@ -374,11 +404,38 @@ public partial class CarrouselScene : Node3D
             return;
         }
 
-        // (b) Cyclage clavier dans l'ordre du pivot. On evite Tab (focus GUI Godot) et F11 (OrbitCamera).
+        // (b/c) Raccourcis clavier. On evite Tab (focus GUI Godot) et F11 (OrbitCamera) : aucun de nos
+        // codes ne les recouvre. On ne consomme l'event (SetInputAsHandled) que si le geste a un effet.
         if (@event is InputEventKey { Pressed: true, Echo: false } key)
         {
-            if (key.Keycode == Key.Bracketright) { CycleSelection(+1); GetViewport().SetInputAsHandled(); }
-            else if (key.Keycode == Key.Bracketleft) { CycleSelection(-1); GetViewport().SetInputAsHandled(); }
+            switch (key.Keycode)
+            {
+                case Key.Bracketright: CycleSelection(+1); GetViewport().SetInputAsHandled(); break;
+                case Key.Bracketleft:  CycleSelection(-1); GetViewport().SetInputAsHandled(); break;
+
+                // B : bascule du mode aveugle (masque tous les marquages de defaut, defauts conserves).
+                case Key.B: ToggleBlindMode(); GetViewport().SetInputAsHandled(); break;
+
+                // R : reparer l'element selectionne (efface physique + capteurs bloques), sans effet si rien de selectionne.
+                case Key.R:
+                    if (_selectedId is not null)
+                    {
+                        _sim.Faults.ClearComponent(_selectedId);
+                        RefreshEmission(_selectedId);
+                        GetViewport().SetInputAsHandled();
+                    }
+                    break;
+
+                // F / Espace : ouvre le menu de defauts de la ligne selectionnee (equivalent clavier du MenuButton).
+                case Key.F:
+                case Key.Space:
+                    if (_selectedId is not null)
+                    {
+                        _panel.OpenFaultMenu(_selectedId);
+                        GetViewport().SetInputAsHandled();
+                    }
+                    break;
+            }
         }
     }
 
@@ -402,6 +459,62 @@ public partial class CarrouselScene : Node3D
         }
 
         SetSelected(_componentIds[idx]);
+    }
+
+    // --- Injection de defauts (S5.3) : ponts entre le panneau et _sim.Faults -----------------------
+
+    /// <summary>
+    /// Handler du menu de defauts (S5.3) : applique la commande choisie a la simulation puis rafraichit
+    /// le marquage 3D de l'element. C'est le PREMIER point ou l'IHM ECRIT dans la sim — sur le thread
+    /// principal Godot (frontiere Arch A respectee : ni le thread serveur ni le datastore ne sont touches).
+    /// La colonne « Défaut » du panneau, elle, se met a jour d'elle-meme au prochain Update (~6 Hz).
+    /// </summary>
+    private void OnFault(FaultCommand cmd)
+    {
+        _sim.Faults.Apply(cmd);
+        RefreshEmission(cmd.ComponentId);
+    }
+
+    /// <summary>
+    /// Libelle du/des defaut(s) actif(s) d'un element pour la colonne « Défaut » du panneau, agrege
+    /// (physique + chaque capteur bloque), separes par deux espaces ; « — » si aucun. En MODE AVEUGLE,
+    /// renvoie toujours « — » : le badge est masque alors que le defaut reste reellement injecte. La
+    /// traduction FR est deleguee a <see cref="ElementPanel.FaultCommandLabel"/> (source unique du mapping).
+    /// </summary>
+    private string FaultLabelById(string id)
+    {
+        if (_blindMode)
+            return "—";
+        if (!_components.TryGetValue(id, out var comp))
+            return "—";
+
+        var faults = _sim.Faults;
+        var parts = new System.Collections.Generic.List<string>();
+
+        var phys = faults.GetPhysical(id);
+        if (phys != PhysicalFault.None)
+            parts.Add(ElementPanel.FaultCommandLabel(new FaultCommand(FaultKind.Physical, id, Physical: phys), comp));
+
+        foreach (var (compId, sigName, mode) in faults.ActiveStucks)
+            if (compId == id)
+                parts.Add(ElementPanel.FaultCommandLabel(
+                    new FaultCommand(FaultKind.SensorStuck, id, SignalName: sigName, Stuck: mode), comp));
+
+        return parts.Count == 0 ? "—" : string.Join("  ", parts);
+    }
+
+    /// <summary>
+    /// Bascule le mode aveugle (touche B) : masque/remontre le marquage rouge 3D et le badge panneau.
+    /// Le defaut n'est PAS leve — seul l'indice visuel change (message pedagogique : « une panne peut
+    /// etre invisible »). On rejoue <see cref="RefreshEmission"/> sur TOUS les elements pour que le rouge
+    /// disparaisse/reapparaisse immediatement (peu d'elements ; sans attendre le ~6 Hz du panneau).
+    /// </summary>
+    private void ToggleBlindMode()
+    {
+        _blindMode = !_blindMode;
+        _panel.SetBlindMode(_blindMode);
+        foreach (var id in _componentIds)
+            RefreshEmission(id);
     }
 
     /// <summary>

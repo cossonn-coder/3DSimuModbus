@@ -67,8 +67,10 @@ public partial class ElementPanel : CanvasLayer
     // Largeurs de colonnes (px) : PLANCHERS d'alignement. Les colonnes s'ajustent au contenu le
     // plus long rencontre (cf. AutoFitColumns) mais ne descendent jamais sous ces valeurs, ce qui
     // garde un tableau tabulaire meme quand les cellules sont courtes.
-    private static readonly int[] ColWidths = { 46, 84, 132, 116, 210 };
-    private static readonly string[] Headers = { "Repère", "Type", "État", "cmd %MW=bit", "ret %MW=bit" };
+    // S5.3 : 6e colonne « Défaut » (libellé du/des défaut(s) actif(s) de l'élément, « — » si aucun).
+    // Un MenuButton s'ajoute EN PLUS en bout de ligne (hors colonne mesuree) pour declencher/reparer.
+    private static readonly int[] ColWidths = { 46, 84, 132, 116, 210, 180 };
+    private static readonly string[] Headers = { "Repère", "Type", "État", "cmd %MW=bit", "ret %MW=bit", "Défaut" };
 
     // Abreviations d'affichage des types du pivot (lisibilite). Cle = valeur `Component.Type`
     // (convention pivot, pas un id carrousel) ; type inconnu => affiche tel quel. Purement cosmetique.
@@ -106,6 +108,20 @@ public partial class ElementPanel : CanvasLayer
     // La scene y route sa source unique SetSelected : clic de ligne et clic 3D convergent donc.
     private System.Action<string> _onRowClick = static _ => { };
 
+    // --- Injection de defauts (S5.3) : deux delegues fournis par la scene (comme _onRowHover) -------
+    // _onFault : appele quand l'utilisateur choisit une entree du menu d'une ligne. La scene y route
+    // _sim.Faults.Apply(cmd) — c'est le PREMIER endroit ou l'IHM ECRIT dans la sim (meme thread
+    // principal, aucune traversee de thread). _faultLabelById : rend le libelle « Défaut » d'un
+    // composant (« — » si aucun, ou masque par le mode aveugle), interroge a chaque Update et au
+    // peuplement du menu (pour savoir s'il faut y ajouter « Réparer »). Le contenu du menu, lui,
+    // vient de FaultCatalog (generique par type + signaux ret TOR), jamais d'une liste carrousel.
+    private System.Action<FaultCommand> _onFault = static _ => { };
+    private System.Func<string, string> _faultLabelById = static _ => "—";
+
+    // Indicateur « MODE AVEUGLE » (S5.3) : rappel visuel que le marquage des defauts est masque alors
+    // que les defauts restent REELLEMENT injectes (sinon on s'y perd). Bascule par SetBlindMode.
+    private Label _blindIndicator = null!;
+
     // Styleboxes partagees des lignes : transparente au repos, teintee en survol, teintee (cyan) en
     // selection. On ne recree rien par frame, on echange juste l'override « panel » de la ligne. La
     // selection (S5.2) prime visuellement sur le survol : les deux etats se composent dans RefreshRowStyle.
@@ -127,6 +143,13 @@ public partial class ElementPanel : CanvasLayer
         public required PanelContainer Container;
         public required Label Etat, Cmd, Ret;
         public required Label[] Cells;
+
+        // S5.3 : cellule « Défaut » (libelle du/des defaut(s) actif(s), rafraichie a chaque Update)
+        // + MenuButton de declenchement/reparation + liste des commandes du popup (index -> commande,
+        // reconstruite a chaque ouverture pour refleter l'etat courant, cf. PopulateFaultMenu).
+        public required Label Defaut;
+        public required MenuButton Menu;
+        public required List<FaultCommand> MenuCommands;
     }
 
     // Lignes indexees par id composant (pour HighlightRow) + liste ordonnee (pour Update dans
@@ -154,13 +177,19 @@ public partial class ElementPanel : CanvasLayer
     /// <param name="onRowHover">Appele (id, on) quand la souris entre/sort d'une ligne (ligne -> 3D).</param>
     /// <param name="onRowClick">Appele (id) au clic gauche d'une ligne (ligne -> selection).</param>
     /// <param name="cylinderPositionById">Position 0..1 d'un verin par son id pivot (routage de la scene).</param>
+    /// <param name="onFault">Appele avec la commande choisie dans le menu d'une ligne (S5.3, ligne -> sim).</param>
+    /// <param name="faultLabelById">Libelle « Défaut » d'un composant (« — » si aucun / masque aveugle).</param>
     public void Build(PivotModel pivot, System.Action<string, bool> onRowHover,
                       System.Action<string> onRowClick,
-                      System.Func<string, double> cylinderPositionById)
+                      System.Func<string, double> cylinderPositionById,
+                      System.Action<FaultCommand> onFault,
+                      System.Func<string, string> faultLabelById)
     {
         _onRowHover = onRowHover;
         _onRowClick = onRowClick;
         _cylinderPositionById = cylinderPositionById;
+        _onFault = onFault;
+        _faultLabelById = faultLabelById;
 
         // Signaux de retour pour la coloration d'etat, resolus DEFENSIVEMENT (voir champ _sigKm1Aux).
         _sigKm1Aux = TryResolve(pivot, "conveyor", "ret_running");
@@ -229,6 +258,20 @@ public partial class ElementPanel : CanvasLayer
         handle.GuiInput += OnHandleGuiInput;
         _bg.AddChild(handle);
 
+        // --- Indicateur « MODE AVEUGLE » (S5.3) ------------------------------------------------
+        // Bandeau ancre en HAUT-CENTRE de l'ecran (donc visible quelle que soit la largeur du
+        // panneau), cache par defaut. SetBlindMode le montre/masque. MouseFilter Ignore : il ne
+        // capte aucun clic (purement indicatif). Rouge attenue pour rester lisible sans alarmer.
+        _blindIndicator = new Label
+        {
+            Text = "MODE AVEUGLE",
+            Visible = false,
+            MouseFilter = Control.MouseFilterEnum.Ignore,
+        };
+        _blindIndicator.AddThemeColorOverride("font_color", new Color(1f, 0.45f, 0.30f));
+        _blindIndicator.SetAnchorsPreset(Control.LayoutPreset.CenterTop);
+        AddChild(_blindIndicator);
+
         // Trace deterministe pour le smoke-test headless : nombre de lignes = nombre de composants.
         GD.Print($"[panel] rows={_rows.Count}");
     }
@@ -268,6 +311,9 @@ public partial class ElementPanel : CanvasLayer
             row.Etat.Text = PhysicalState(row.Comp, cmd, ret);
             row.Cmd.Text = ZoneAddresses(row.Comp, "cmd", cmd);
             row.Ret.Text = ZoneAddresses(row.Comp, "ret", ret);
+            // S5.3 : la colonne « Défaut » est un MIROIR de l'etat de defauts de la sim (source de
+            // verite cote scene) ; le mode aveugle y renvoie « — » sans lever le defaut reel.
+            row.Defaut.Text = _faultLabelById(row.Comp.Id);
         }
 
         // Reajuste les largeurs de colonnes au contenu (aucune cellule tronquee, colonnes alignees).
@@ -481,9 +527,28 @@ public partial class ElementPanel : CanvasLayer
         var etat = MakeCell("…", ColWidths[2]);
         var cmdCell = MakeCell("…", ColWidths[3]);
         var retCell = MakeCell("…", ColWidths[4]);
-        var cells = new[] { repere, type, etat, cmdCell, retCell };
+        var defautCell = MakeCell("—", ColWidths[5]);   // S5.3 : libelle du/des defaut(s) actif(s)
+        var cells = new[] { repere, type, etat, cmdCell, retCell, defautCell };
         foreach (var c in cells)
             hbox.AddChild(c);
+
+        // --- Menu de defauts (S5.3) : un MenuButton en bout de ligne ----------------------------
+        // Son popup est peuple A CHAQUE OUVERTURE (signal AboutToPopup) depuis FaultCatalog (generique
+        // par type + signaux ret TOR) plus une entree « Réparer » si un defaut est actif. On memorise
+        // dans menuCommands la commande de chaque item (dans l'ordre d'insertion) : IndexPressed nous
+        // rend l'INDICE du choix, qu'on retraduit en FaultCommand transmise a la scene via _onFault.
+        // MouseFilter Stop : le bouton consomme son clic (ni scroll, ni orbite camera, ni selection ligne).
+        var menu = new MenuButton { Text = "▾", MouseFilter = Control.MouseFilterEnum.Stop };
+        var popup = menu.GetPopup();
+        var menuCommands = new List<FaultCommand>();
+        popup.AboutToPopup += () => PopulateFaultMenu(comp, popup, menuCommands);
+        popup.IndexPressed += index =>
+        {
+            if (index >= 0 && index < menuCommands.Count)
+                _onFault(menuCommands[(int)index]);
+        };
+        hbox.AddChild(menu);
+
         container.AddChild(hbox);
 
         // Survol : les signaux Godot mouse_entered/mouse_exited du conteneur declenchent le sens
@@ -501,7 +566,95 @@ public partial class ElementPanel : CanvasLayer
                 _onRowClick(id);
         };
 
-        return new Row { Comp = comp, Container = container, Etat = etat, Cmd = cmdCell, Ret = retCell, Cells = cells };
+        return new Row
+        {
+            Comp = comp, Container = container, Etat = etat, Cmd = cmdCell, Ret = retCell, Cells = cells,
+            Defaut = defautCell, Menu = menu, MenuCommands = menuCommands,
+        };
+    }
+
+    // --- Menu de defauts (S5.3) : peuplement + API d'ouverture/masquage ------------------------
+
+    /// <summary>
+    /// (Re)peuple le popup d'une ligne A CHAQUE ouverture : d'abord les modes applicables du
+    /// composant (<see cref="FaultCatalog.ApplicableTo"/> — physique du type + capteur-bloque de
+    /// chaque signal `ret` TOR, 100 % generique), puis une entree « Réparer » SEULEMENT si un defaut
+    /// est actif (label != « — »). On reconstruit en parallele <paramref name="commands"/> pour que
+    /// l'indice de l'item choisi (IndexPressed) retrouve exactement sa commande. Pas de separateur :
+    /// un separateur compterait comme un item et decalerait les indices.
+    /// </summary>
+    private void PopulateFaultMenu(Component comp, PopupMenu popup, List<FaultCommand> commands)
+    {
+        popup.Clear();
+        commands.Clear();
+
+        foreach (var cmd in FaultCatalog.ApplicableTo(comp))
+        {
+            popup.AddItem(FaultCommandLabel(cmd, comp));
+            commands.Add(cmd);
+        }
+
+        // « Réparer » n'est pas emis par le catalogue : l'UI l'ajoute quand l'element porte un defaut.
+        if (_faultLabelById(comp.Id) != "—")
+        {
+            var repair = new FaultCommand(FaultKind.Repair, comp.Id);
+            popup.AddItem(FaultCommandLabel(repair, comp));
+            commands.Add(repair);
+        }
+    }
+
+    /// <summary>Ouvre le popup de defauts d'une ligne (touche « F »/« Espace » cote scene sur la selection).</summary>
+    public void OpenFaultMenu(string componentId)
+    {
+        if (_rowsById.TryGetValue(componentId, out var row))
+            row.Menu.ShowPopup();
+    }
+
+    /// <summary>Montre/masque l'indicateur « MODE AVEUGLE » (le defaut reste injecte ; seul l'indice visuel change).</summary>
+    public void SetBlindMode(bool on) => _blindIndicator.Visible = on;
+
+    /// <summary>
+    /// Libelle FR d'une commande de defaut (presentation, esprit <see cref="TypeLabels"/>) : mappe le
+    /// <see cref="FaultCommand"/> vers un texte lisible par l'automaticien. Reutilise par le menu (cote
+    /// panneau) ET par la colonne « Défaut » (cote scene, qui agrege les defauts actifs) — un seul
+    /// endroit ou vit la traduction. Type/mode inconnu => libelle brut (defensif, jamais d'exception).
+    /// </summary>
+    public static string FaultCommandLabel(FaultCommand cmd, Component comp)
+    {
+        switch (cmd.Kind)
+        {
+            case FaultKind.Repair:
+                return "réparer";
+            case FaultKind.Physical:
+                return cmd.Physical switch
+                {
+                    PhysicalFault.CylinderStuckRetracted => "vérin : ne sort pas",
+                    PhysicalFault.CylinderStuckMidStroke => "vérin : coincé mi-course",
+                    PhysicalFault.ConveyorSlip => "convoyeur : patine",
+                    _ => cmd.Physical.ToString(),
+                };
+            case FaultKind.SensorStuck:
+                string label = SignalLabel(comp, cmd.SignalName);
+                return cmd.Stuck switch
+                {
+                    StuckMode.Low => $"{label} bloqué à 0",
+                    StuckMode.High => $"{label} bloqué à 1",
+                    _ => cmd.ToString(),
+                };
+            default:
+                return cmd.ToString();
+        }
+    }
+
+    // Repere d'un signal pour l'affichage : son tag schema (S11, KM1_AUX...) si defini, sinon son nom
+    // brut. Defensif : composant/signal absent => on retombe sur le nom (jamais d'exception).
+    private static string SignalLabel(Component comp, string? signalName)
+    {
+        if (signalName is null)
+            return "signal";
+        if (comp.Signals.TryGetValue(signalName, out var s) && s.Tag is not null)
+            return s.Tag;
+        return signalName;
     }
 
     // Une cellule = un Label a largeur minimale fixe (le plancher d'alignement). PAS de ClipText :
