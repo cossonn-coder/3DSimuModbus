@@ -123,17 +123,6 @@ public partial class CarrouselScene : Node3D
     // Rempli additivement dans les builders (anneau/verins/capteurs), materiaux DEJA captures.
     private readonly System.Collections.Generic.Dictionary<string, StandardMaterial3D> _highlightMat = new();
 
-    // Noeuds 3D des elements, captures au build (heritage des ancres d'etiquettes 3D S3.3,
-    // Label3D retire en S4.2). S4.3 attache finalement le picking DANS les builders sur le noeud
-    // LOCAL de chaque element (generique, une Area3D par composant du pivot, cf. AttachHoverArea),
-    // sans passer par ces references : elles sont donc VESTIGIALES depuis S4.2 (dette signalee dans
-    // docs/dettes.md). Conservees telles quelles (retrait = refactor hors perimetre S4.3).
-    private Node3D _ringNode = null!;
-    private Node3D _cyl1Node = null!;
-    private Node3D _cyl2Node = null!;
-    private MeshInstance3D _sensor1Node = null!;
-    private MeshInstance3D _sensor2Node = null!;
-
     // Materiaux a colorer selon l'etat (references reutilisees, on ne modifie que leur AlbedoColor,
     // cf. amorce S3.3). Tige teintee par degrade selon la course ; anneau teinte quand KM1_AUX=1 ;
     // fenetre capteur allumee quand Bi=1. Capturees au build (l'anneau/les fenetres ne l'etaient pas).
@@ -158,6 +147,26 @@ public partial class CarrouselScene : Node3D
     // RegisterHighlight / SetHover) et l'element retrouve exactement sa couleur d'etat.
     private static readonly Color HighlightEmission = new(0.55f, 0.75f, 1.00f);   // halo bleu clair
     private const float HighlightEnergy = 0.65f;
+
+    // Surbrillance de SELECTION (S5.2) : distincte du survol (bleu), plus soutenue et cyan pour se
+    // lire par-dessus lui. La selection est PERSISTANTE (un clic la pose, un autre la deplace),
+    // contrairement au survol qui suit le curseur. Meme canal EMISSION (jamais l'albedo/D-arch) :
+    // RefreshEmission arbitre couleur + energie selon l'etat combine survol/selection de l'element.
+    private static readonly Color HighlightSelectEmission = new(0.20f, 0.95f, 1.00f);   // halo cyan
+    private const float SelectEnergy = 1.0f;
+
+    // --- Etat de survol / selection (S5.2) : deux etats INDEPENDANTS, un seul id chacun -----------
+    // Le pointeur est unique donc au plus UN element survole a la fois ; la selection est unique par
+    // construction (un clic la deplace). On garde ces deux ids pour que RefreshEmission arbitre la
+    // priorite (selection > survol) sur un element donne, et pour cycler la selection au clavier.
+    // Null = aucun. _hoveredId est desormais maintenu par SetHover (avant : effet direct sans etat).
+    private string? _hoveredId;
+    private string? _selectedId;
+
+    // Ordre du pivot (cle = ordre d'insertion du dictionnaire = ordre du tableau JSON), capture a
+    // _Ready pour le cyclage clavier ]/[ . Meme ordre que les lignes du panneau : la selection
+    // clavier et la selection au clic parcourent donc la meme sequence d'elements (symetrie).
+    private string[] _componentIds = System.Array.Empty<string>();
 
     public override void _Ready()
     {
@@ -259,9 +268,17 @@ public partial class CarrouselScene : Node3D
         // nourrit ensuite a basse cadence. Deux delegues le relient a la scene sans le rendre
         // specifique au carrousel : SetHover (survol ligne -> element 3D) et un routeur de position
         // de verin par id (la sim n'expose Cylinder1/2 que par accesseurs fixes, la scene sait router).
+        // Ordre du pivot fige pour le cyclage clavier de la selection (S5.2), avant de peupler le
+        // panneau qui itere le meme dictionnaire dans le meme ordre.
+        _componentIds = new System.Collections.Generic.List<string>(pivot.Components.Keys).ToArray();
+
         _panel = new ElementPanel();
         AddChild(_panel);
-        _panel.Build(pivot, SetHover, CylinderPositionById);
+        // Trois delegues relient le panneau a la scene sans le rendre specifique au carrousel :
+        // SetHover (survol ligne -> 3D), SetSelected (clic ligne -> selection), et le routeur de
+        // position de verin par id. La selection est ainsi symetrique : clic 3D et clic de ligne
+        // convergent vers la meme source unique SetSelected.
+        _panel.Build(pivot, SetHover, SetSelected, CylinderPositionById);
     }
 
     /// <summary>
@@ -273,17 +290,118 @@ public partial class CarrouselScene : Node3D
     /// </summary>
     private void SetHover(string id, bool on)
     {
-        // On ne touche QUE l'energie d'emission (un UNIFORME du shader), jamais EmissionEnabled.
-        // Raison perf (regression corrigee) : basculer EmissionEnabled est un changement de FEATURE
-        // du materiau -> Godot REGENERE et RECOMPILE le shader a chaque bascule. Au survol, ce
-        // recompile faisait chuter le framerate, et donc RALENTIR la simulation (les ticks en trop
-        // sont alors abandonnes par le garde-fou anti-spirale de _PhysicsProcess). L'emission est
-        // desormais PRE-ACTIVEE au build (RegisterHighlight) avec une energie nulle ; ici on module
-        // seulement l'energie 0 <-> HighlightEnergy : un simple set d'uniforme, sans recompilation.
-        if (_highlightMat.TryGetValue(id, out var mat))
-            mat.EmissionEnergyMultiplier = on ? HighlightEnergy : 0f;
+        // On memorise l'id survole (au plus un a la fois : pointeur unique) puis on RESOUT l'emission
+        // de cet element : le survol ne « gagne » l'element que s'il n'est pas deja selectionne
+        // (priorite dans RefreshEmission). Le fond de ligne suit la meme logique (HighlightRow).
+        if (on)
+            _hoveredId = id;
+        else if (_hoveredId == id)
+            _hoveredId = null;
 
+        RefreshEmission(id);
         _panel.HighlightRow(id, on);
+    }
+
+    /// <summary>
+    /// Source UNIQUE de verite de la SELECTION persistante (S5.2), symetrique de <see cref="SetHover"/> :
+    /// clic sur l'element 3D ou sur sa ligne du panneau y convergent. <c>SetSelected(null)</c> = deselection
+    /// (clic dans le vide). On rafraichit l'emission de l'ANCIEN et du NOUVEL element (l'ancien perd le
+    /// cyan, le nouveau le gagne — sauf s'il reste survole, arbitre par RefreshEmission), et on repercute
+    /// la selection sur la ligne du panneau (symetrie ligne <-> 3D garantie par ce point unique).
+    /// </summary>
+    private void SetSelected(string? id)
+    {
+        if (_selectedId == id)
+            return;   // deja selectionne : rien a faire (evite un refresh inutile)
+
+        string? previous = _selectedId;
+        _selectedId = id;
+
+        RefreshEmission(previous);   // l'ancien retombe a survol/repos
+        RefreshEmission(id);         // le nouveau passe en cyan (si non null)
+        _panel.SelectRow(id);        // fond de ligne dedie (ou retrait si null)
+    }
+
+    /// <summary>
+    /// Resolveur d'emission par PRIORITE (S5.2) pour un element donne : selectionne (cyan) prime sur
+    /// survole (bleu), qui prime sur repos (energie nulle). C'est le seul endroit qui ECRIT l'emission ;
+    /// <see cref="SetHover"/> et <see cref="SetSelected"/> ne font que muter l'etat puis appeler ceci
+    /// sur les ids concernes. (S5.3 y ajoutera la priorite defaut (rouge) > selection > survol.)
+    ///
+    /// On ne touche QUE couleur + energie d'emission (des UNIFORMES du shader), jamais EmissionEnabled.
+    /// Raison perf (regression corrigee) : basculer EmissionEnabled est un changement de FEATURE du
+    /// materiau -> Godot REGENERE et RECOMPILE le shader a chaque bascule, ce qui ferait chuter le
+    /// framerate (et donc ralentir la simulation via le garde-fou anti-spirale de _PhysicsProcess).
+    /// L'emission est PRE-ACTIVEE au build (RegisterHighlight) ; ici on ne module que des uniformes.
+    /// Defensif : id null ou sans materiau route => aucun effet.
+    /// </summary>
+    private void RefreshEmission(string? id)
+    {
+        if (id is null || !_highlightMat.TryGetValue(id, out var mat))
+            return;
+
+        if (_selectedId == id)
+        {
+            mat.Emission = HighlightSelectEmission;
+            mat.EmissionEnergyMultiplier = SelectEnergy;
+        }
+        else if (_hoveredId == id)
+        {
+            mat.Emission = HighlightEmission;
+            mat.EmissionEnergyMultiplier = HighlightEnergy;
+        }
+        else
+        {
+            mat.EmissionEnergyMultiplier = 0f;
+        }
+    }
+
+    /// <summary>
+    /// Entree souris/clavier de la scene (S5.2), lue dans _UnhandledInput : le panneau (MouseFilter=Stop)
+    /// CONSOMME ses propres clics avant nous, donc un clic de ligne passe par le panneau (pas ici) et il
+    /// n'y a pas de double-selection. Deux gestes : (a) clic gauche RELACHE non consomme -> selectionne
+    /// l'element sous le curseur (<see cref="_hoveredId"/>), ou deselectionne si le vide ; (b) touches
+    /// ]/[ -> cyclage de la selection dans l'ordre du pivot. On cohabite avec OrbitCamera (qui ne lit
+    /// que molette/bouton du milieu/F11) : nos touches et le clic gauche ne sont pas les siens.
+    /// </summary>
+    public override void _UnhandledInput(InputEvent @event)
+    {
+        // (a) Clic gauche relache : la selection suit l'element survole (null => clic dans le vide => deselection).
+        if (@event is InputEventMouseButton { ButtonIndex: MouseButton.Left, Pressed: false })
+        {
+            SetSelected(_hoveredId);
+            GetViewport().SetInputAsHandled();
+            return;
+        }
+
+        // (b) Cyclage clavier dans l'ordre du pivot. On evite Tab (focus GUI Godot) et F11 (OrbitCamera).
+        if (@event is InputEventKey { Pressed: true, Echo: false } key)
+        {
+            if (key.Keycode == Key.Bracketright) { CycleSelection(+1); GetViewport().SetInputAsHandled(); }
+            else if (key.Keycode == Key.Bracketleft) { CycleSelection(-1); GetViewport().SetInputAsHandled(); }
+        }
+    }
+
+    /// <summary>
+    /// Cycle la selection d'un cran (<paramref name="dir"/> = +1 suivant, -1 precedent) dans l'ordre du
+    /// pivot, de facon CIRCULAIRE. Depuis « aucune selection », +1 prend le premier element et -1 le
+    /// dernier. Le double modulo ramene un indice negatif dans [0, N) (rollover propre des deux cotes).
+    /// </summary>
+    private void CycleSelection(int dir)
+    {
+        if (_componentIds.Length == 0)
+            return;
+
+        int idx;
+        if (_selectedId is null)
+            idx = dir > 0 ? 0 : _componentIds.Length - 1;
+        else
+        {
+            int cur = System.Array.IndexOf(_componentIds, _selectedId);
+            idx = ((cur + dir) % _componentIds.Length + _componentIds.Length) % _componentIds.Length;
+        }
+
+        SetSelected(_componentIds[idx]);
     }
 
     /// <summary>
@@ -531,9 +649,8 @@ public partial class CarrouselScene : Node3D
         ring.AddChild(inner);
         AddChild(ring);
 
-        // S3.3 : memoriser l'anneau (ancre de l'etiquette KM1) et son materiau (a teinter quand
-        // le contact KM1_AUX est ferme). On reutilise le materiau deja pose, on ne recree rien.
-        _ringNode = ring;
+        // S3.3 : memoriser le materiau de l'anneau (a teinter quand le contact KM1_AUX est ferme).
+        // On reutilise le materiau deja pose, on ne recree rien.
         _ringMat = (StandardMaterial3D)outer.Material;
         RegisterHighlight(conveyor.Id, _ringMat);   // S4.2 : materiau a « allumer » (emission) au survol
 
@@ -585,17 +702,17 @@ public partial class CarrouselScene : Node3D
         // S2.2 : memoriser la tige et sa course pour l'animer chaque frame (zero GetNode a l'execution).
         // Routage explicite par id pivot : on garantit que _rod1/_rod2 correspondent bien a
         // Cylinder1/Cylinder2 de la simulation, independamment de l'ordre d'iteration du dictionnaire.
-        // S3.3 (additif) : on capture aussi le noeud du verin (ancre de l'etiquette) et le materiau
-        // de la tige (a teinter par degrade selon la course) — memes indices, meme routage par id.
+        // S3.3 (additif) : on capture aussi le materiau de la tige (a teinter par degrade selon la
+        // course) — memes indices, meme routage par id.
         if (cyl.Id == "cylinder_1")
         {
             _rod1 = rod; _restY1 = rod.Position.Y; _stroke1 = stroke;
-            _cyl1Node = node; _rodMat1 = (StandardMaterial3D)rod.MaterialOverride;
+            _rodMat1 = (StandardMaterial3D)rod.MaterialOverride;
         }
         else if (cyl.Id == "cylinder_2")
         {
             _rod2 = rod; _restY2 = rod.Position.Y; _stroke2 = stroke;
-            _cyl2Node = node; _rodMat2 = (StandardMaterial3D)rod.MaterialOverride;
+            _rodMat2 = (StandardMaterial3D)rod.MaterialOverride;
         }
 
         // S4.2 : materiau de la tige = cible d'emission au survol (routage par id, comme ci-dessus).
@@ -652,15 +769,15 @@ public partial class CarrouselScene : Node3D
         };
         AddChild(window);
 
-        // S3.3 : capturer le noeud (ancre de l'etiquette Bi) et son materiau (a « allumer » quand
-        // le bit de presence est a 1). Routage par id pivot, comme pour les verins/tiges.
+        // S3.3 : capturer le materiau de la fenetre (a « allumer » quand le bit de presence est a 1).
+        // Routage par id pivot, comme pour les verins/tiges.
         if (sensor.Id == "presence_station_1")
         {
-            _sensor1Node = window; _sensorMat1 = (StandardMaterial3D)window.MaterialOverride;
+            _sensorMat1 = (StandardMaterial3D)window.MaterialOverride;
         }
         else if (sensor.Id == "presence_station_2")
         {
-            _sensor2Node = window; _sensorMat2 = (StandardMaterial3D)window.MaterialOverride;
+            _sensorMat2 = (StandardMaterial3D)window.MaterialOverride;
         }
 
         // S4.2 : materiau de la fenetre capteur = cible d'emission au survol (routage par id).

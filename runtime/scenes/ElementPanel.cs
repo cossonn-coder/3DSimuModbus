@@ -102,10 +102,21 @@ public partial class ElementPanel : CanvasLayer
     // Callback vers la scene au survol d'une ligne (sens ligne -> element 3D). Injecte au Build.
     private System.Action<string, bool> _onRowHover = static (_, _) => { };
 
-    // Styleboxes partagees des lignes : transparente au repos, teintee en surbrillance. On ne
-    // recree rien par survol, on echange juste l'override « panel » de la ligne concernee.
+    // Callback vers la scene au CLIC d'une ligne (sens ligne -> selection). Injecte au Build (S5.2).
+    // La scene y route sa source unique SetSelected : clic de ligne et clic 3D convergent donc.
+    private System.Action<string> _onRowClick = static _ => { };
+
+    // Styleboxes partagees des lignes : transparente au repos, teintee en survol, teintee (cyan) en
+    // selection. On ne recree rien par frame, on echange juste l'override « panel » de la ligne. La
+    // selection (S5.2) prime visuellement sur le survol : les deux etats se composent dans RefreshRowStyle.
     private readonly StyleBox _rowIdle = new StyleBoxEmpty();
     private readonly StyleBoxFlat _rowHighlight = new() { BgColor = new Color(0.30f, 0.55f, 0.85f, 0.45f) };
+    private readonly StyleBoxFlat _rowSelect = new() { BgColor = new Color(0.15f, 0.75f, 0.85f, 0.55f) };
+
+    // Etat de survol / selection au niveau du panneau (S5.2), miroir de celui de la scene : chacun au
+    // plus un id (pointeur unique ; selection unique). RefreshRowStyle arbitre lequel s'affiche.
+    private string? _hoveredRowId;
+    private string? _selectedRowId;
 
     // Une ligne d'interface par composant : son conteneur (pour la surbrillance) + les trois
     // cellules dynamiques (etat/cmd/ret) rafraichies a chaque Update. Repere et Type sont statiques.
@@ -141,11 +152,14 @@ public partial class ElementPanel : CanvasLayer
     /// </summary>
     /// <param name="pivot">Modele pivot resolu (source des reperes, types et adresses).</param>
     /// <param name="onRowHover">Appele (id, on) quand la souris entre/sort d'une ligne (ligne -> 3D).</param>
+    /// <param name="onRowClick">Appele (id) au clic gauche d'une ligne (ligne -> selection).</param>
     /// <param name="cylinderPositionById">Position 0..1 d'un verin par son id pivot (routage de la scene).</param>
     public void Build(PivotModel pivot, System.Action<string, bool> onRowHover,
+                      System.Action<string> onRowClick,
                       System.Func<string, double> cylinderPositionById)
     {
         _onRowHover = onRowHover;
+        _onRowClick = onRowClick;
         _cylinderPositionById = cylinderPositionById;
 
         // Signaux de retour pour la coloration d'etat, resolus DEFENSIVEMENT (voir champ _sigKm1Aux).
@@ -266,14 +280,52 @@ public partial class ElementPanel : CanvasLayer
     }
 
     /// <summary>
-    /// Surligne/dé-surligne la ligne d'un composant (echange de stylebox). Appelee par la scene :
-    /// c'est le point d'entree du sens 3D -> ligne (branche une 2e source en S4.3) et du sens
-    /// ligne -> 3D (via <c>SetHover</c> qui, en plus de l'emission, rappelle cette methode).
+    /// Surligne/dé-surligne (SURVOL) la ligne d'un composant. Appelee par la scene : c'est le point
+    /// d'entree du sens 3D -> ligne et du sens ligne -> 3D (via <c>SetHover</c>). Ne fait plus qu'un
+    /// EFFET DIRECT : elle met a jour l'etat de survol du panneau puis delegue le rendu a
+    /// <see cref="RefreshRowStyle"/>, qui compose survol et selection (la selection prime).
     /// </summary>
     public void HighlightRow(string componentId, bool on)
     {
-        if (_rowsById.TryGetValue(componentId, out var row))
-            row.Container.AddThemeStyleboxOverride("panel", on ? _rowHighlight : _rowIdle);
+        if (on)
+            _hoveredRowId = componentId;
+        else if (_hoveredRowId == componentId)
+            _hoveredRowId = null;
+
+        RefreshRowStyle(componentId);
+    }
+
+    /// <summary>
+    /// Selectionne/deselectionne une ligne (S5.2). <c>null</c> = deselection. Symetrique de
+    /// <see cref="HighlightRow"/> pour la SELECTION persistante : la scene y route sa source unique
+    /// (clic 3D ou clic de ligne). On rafraichit l'ANCIENNE et la NOUVELLE ligne pour que l'ancienne
+    /// retombe au survol/repos et la nouvelle prenne la stylebox de selection.
+    /// </summary>
+    public void SelectRow(string? componentId)
+    {
+        string? previous = _selectedRowId;
+        _selectedRowId = componentId;
+
+        if (previous is not null)
+            RefreshRowStyle(previous);
+        if (componentId is not null)
+            RefreshRowStyle(componentId);
+    }
+
+    /// <summary>
+    /// Resout la stylebox d'une ligne par PRIORITE (S5.2), miroir de <c>RefreshEmission</c> cote 3D :
+    /// selectionnee (cyan) prime sur survolee (bleu), qui prime sur repos (transparente). Seul endroit
+    /// qui ECRIT l'override « panel » d'une ligne ; survol et selection ne font que muter leur etat.
+    /// </summary>
+    private void RefreshRowStyle(string componentId)
+    {
+        if (!_rowsById.TryGetValue(componentId, out var row))
+            return;
+
+        StyleBox style = _selectedRowId == componentId ? _rowSelect
+                       : _hoveredRowId == componentId ? _rowHighlight
+                       : _rowIdle;
+        row.Container.AddThemeStyleboxOverride("panel", style);
     }
 
     // --- Decodage des cellules (pilote par le pivot, dispatch par type) --------------------
@@ -439,6 +491,15 @@ public partial class ElementPanel : CanvasLayer
         string id = comp.Id;
         container.MouseEntered += () => _onRowHover(id, true);
         container.MouseExited += () => _onRowHover(id, false);
+
+        // Clic (S5.2) : le contencur (MouseFilter=Stop) recoit ses events GUI et les CONSOMME avant
+        // _UnhandledInput -> pas de double-selection cote 3D. On selectionne au RELACHE du bouton
+        // gauche (symetrie avec le clic 3D de la scene, lui aussi au relache), via la source unique.
+        container.GuiInput += @event =>
+        {
+            if (@event is InputEventMouseButton { ButtonIndex: MouseButton.Left, Pressed: false })
+                _onRowClick(id);
+        };
 
         return new Row { Comp = comp, Container = container, Etat = etat, Cmd = cmdCell, Ret = retCell, Cells = cells };
     }

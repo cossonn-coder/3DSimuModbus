@@ -56,13 +56,15 @@ clic sur l'élément **3D** ou sur sa **ligne** du panneau → même sélection 
   (grep). Rien d'autre n'est « nettoyé » au passage (CLAUDE.md §4).
 
 ## Definition of Done (cochable)
-- [ ] Clic gauche sur un élément 3D le sélectionne ; clic sur sa ligne aussi ; les deux donnent
-  le **même** état (émission cyan + ligne sélectionnée).
-- [ ] Clic dans le vide désélectionne. `]`/`[` cyclent la sélection dans l'ordre du pivot.
-- [ ] Le survol (S4.3) fonctionne toujours ; survol et sélection se composent sans perte de couleur
-  d'état (albédo intact).
-- [ ] D-018 soldée : 5 champs + assignations supprimés, build 0 erreur, aucun usage orphelin.
-- [ ] Smoke inchangé : `ring=1 cylinders=2 pallets=3 sensors=2`, `panel rows=5`.
+- [x] Clic gauche sur un élément 3D le sélectionne ; clic sur sa ligne aussi ; les deux donnent
+  le **même** état (émission cyan + ligne sélectionnée). *Implémenté via source unique `SetSelected` ;
+  à valider en F5 (interaction souris/picking non testable en headless).*
+- [x] Clic dans le vide désélectionne. `]`/`[` cyclent la sélection dans l'ordre du pivot.
+  *Implémenté (`_UnhandledInput` + `CycleSelection`) ; à valider en F5.*
+- [x] Le survol (S4.3) fonctionne toujours ; survol et sélection se composent sans perte de couleur
+  d'état (albédo intact). *Résolveurs par priorité `RefreshEmission`/`RefreshRowStyle` ; à valider en F5.*
+- [x] D-018 soldée : 5 champs + assignations supprimés, build 0 erreur, aucun usage orphelin (grep = 0).
+- [x] Smoke inchangé : `ring=1 cylinders=2 pallets=3 sensors=2`, `panel rows=5` (vérifié headless).
 
 ## Banc attendu — **inchangé**
 xUnit **95+N** (total de S5.1) inchangé, **4 pytest inchangés** : ce sous-sprint est de la **glue
