@@ -126,10 +126,22 @@ public sealed class CarrouselSimulation
 	// Un FaultSet vide => comportement STRICTEMENT nominal (aucun test full-chain perturbe).
 	public FaultSet Faults { get; } = new();
 
+	// Forcage des commandes (sprint 6). Meme contrat de partage que Faults : l'IHM le mute entre
+	// deux ticks, le Tick le lit en tete (avant decodage). Pas de verrou (aucun thread serveur n'y
+	// touche, cf. ForceSet). Un ForceSet vide => comportement STRICTEMENT nominal (aucun full-chain
+	// perturbe : la valeur PLC passe telle quelle).
+	public ForceSet Forces { get; } = new();
+
 	// Table des signaux `ret` TOR indexes par (composant, nom), construite une fois au constructeur.
 	// Sert a l'etape « capteur-bloque » du Tick : resoudre un (compId, sigName) actif en Signal pour
 	// forcer son bit APRES l'encodage nominal. On ne garde QUE cette projection du pivot, pas le pivot.
 	private readonly Dictionary<(string ComponentId, string SignalName), Signal> _retTorSignals = new();
+
+	// Table des signaux `cmd` TOR indexes par (composant, nom), miroir exact de _retTorSignals mais
+	// cote commande. Sert a l'etape « forcage » du Tick : resoudre un (compId, sigName) force en
+	// Signal pour substituer son bit dans la copie snapshot AVANT decodage. Parcours generique de
+	// TOUS les composants (cmd_run, cmd_extend, et n'importe quel bit `cmd` d'une machine future).
+	private readonly Dictionary<(string ComponentId, string SignalName), Signal> _cmdTorSignals = new();
 
 	private readonly CylinderUnit _cyl1;
 	private readonly CylinderUnit _cyl2;
@@ -173,10 +185,15 @@ public sealed class CarrouselSimulation
 		// Index des signaux `ret` TOR (compId, name) -> Signal, pour le masque capteur-bloque du
 		// Tick. Parcours generique de TOUS les composants du pivot : couvre S11..S22, B1/B2 et
 		// ret_running sans code specifique, et absorbera les signaux d'une machine future inconnue.
+		// Index `cmd` TOR construit dans le MEME parcours (miroir de _retTorSignals, cf. sprint 6).
 		foreach (var comp in pivot.Components.Values)
 			foreach (var sig in comp.Signals.Values)
+			{
 				if (sig.IsTor && sig.Zone == "ret")
 					_retTorSignals[(comp.Id, sig.Name)] = sig;
+				else if (sig.IsTor && sig.Zone == "cmd")
+					_cmdTorSignals[(comp.Id, sig.Name)] = sig;
+			}
 	}
 
 	// --- Accces lecture seule a l'etat interne (pour la 3D brique 5 et les tests) ---
@@ -209,6 +226,19 @@ public sealed class CarrouselSimulation
 		// 1. Snapshot des commandes en debut de tick : la sim travaille sur une photo figee,
 		//    insensible a une ecriture PLC qui arriverait en cours de calcul (coherence intra-scan).
 		ushort[] cmd = store.SnapshotCommands();
+
+		// 1bis. Forcage (sprint 6) : on substitue les bits `cmd` forces dans la COPIE snapshot (jamais
+		//       le datastore, invariant identique au masque capteur `ret`). Symetrique de
+		//       Faults.ActiveStucks, mais cote `cmd` et AVANT decodage : tout le pipeline en aval
+		//       (run/extend, physique, KM1_AUX) voit la commande EFFECTIVE. Substituer a 1 un bit que
+		//       le PLC laisse a 0 = piloter sans/malgre le PLC ; a 0 un bit a 1 = neutraliser la commande.
+		foreach (var (compId, sigName, mode) in Forces.ActiveForces)
+		{
+			// Defensif : un forcage sur un signal absent de l'index (compId/nom errone) est ignore
+			// plutot que de faire planter le tick — l'UI ne propose que des signaux `cmd` valides.
+			if (_cmdTorSignals.TryGetValue((compId, sigName), out var sig))
+				sig.WriteBit(ref cmd[sig.WordRel], mode == ForceMode.ForceHigh);
+		}
 
 		// 2. Decodage des bits de commande via les Signal (offset relatif + masque). Jamais
 		//    d'adresse ni de masque en dur : tout passe par le pivot (decision D-b).
@@ -311,8 +341,13 @@ public sealed class CarrouselSimulation
 	private double[] CollectBlockedStations()
 	{
 		var blocked = new List<double>(2);
-		if (_cyl1.State.IsEngaged) blocked.Add(_cyl1.StationAngleDeg);
-		if (_cyl2.State.IsEngaged) blocked.Add(_cyl2.StationAngleDeg);
+		// Defaut BlockerIneffective (sprint 6) : la tige sort NORMALEMENT (S11/S12 nominaux, AdvanceCylinder
+		// inchange), mais le poste est EXCLU du blocage — un verin engage n'ajoute son poste que si ce
+		// defaut n'est pas actif. Signature : les palettes traversent une tige pourtant levee.
+		if (_cyl1.State.IsEngaged && Faults.GetPhysical(_cyl1.Id) != PhysicalFault.BlockerIneffective)
+			blocked.Add(_cyl1.StationAngleDeg);
+		if (_cyl2.State.IsEngaged && Faults.GetPhysical(_cyl2.Id) != PhysicalFault.BlockerIneffective)
+			blocked.Add(_cyl2.StationAngleDeg);
 		return blocked.ToArray();
 	}
 

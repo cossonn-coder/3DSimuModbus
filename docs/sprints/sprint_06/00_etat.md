@@ -8,7 +8,7 @@ Prêt pour `/sprint open 06`. Ce carnet est désormais tenu à jour par chaque s
 
 ## Carte des sous-sprints (séquentiels stricts, aucun fichier partagé)
 - **S6.1** `brique_01_core.md` — [core/headless] `BlockerIneffective` + `ForceSet` + application Tick.
-  Banc core **re-figé**. → à cocher à la livraison.
+  Banc core **re-figé 109 → 121** (+12). **LIVRÉ (2026-07-17)**, DoD cochée, build 0 erreur.
 - **S6.2** `brique_02_ui.md` — [visuel] colonne Forçage + écart cmd + touche `G` + AZERTY `A`/`Z`.
   Banc inchangé. Dépend de S6.1. → à cocher.
 - **S6.3** `brique_03_demo.md` — [observable] `demo_sprint_06.ps1` (sans PLC + avec scan). Dépend de S6.2. → à cocher.
@@ -64,6 +64,13 @@ Core 109 + serveur 10 = **119** ; 4 pytest full-chain verts. S6.1 relève le com
 cas) → nouveau témoin. S6.2/S6.3 : inchangé. Forçage inactif + BlockerIneffective inactif = nominal.
 
 ## REPRISE
+**Nouveau témoin de banc core (après S6.1) : 121 verts** (ancien 109 + 12 cas : 5 ForceSet purs +
+7 injection sim). Serveur 10 inchangé → total C# = **131**. 4 pytest full-chain inchangés (non
+relancés en S6.1, headless). Fichiers S6.1 touchés : `runtime/core/ForceSet.cs` (neuf), `FaultSet.cs`,
+`FaultCatalog.cs`, `CarrouselSimulation.cs`, `runtime/tests/ForceSetTests.cs` (neuf),
+`runtime/tests/CarrouselSimulationTests.cs`, `runtime/tests/FaultSetTests.cs` (test catalogue renommé 6→7).
+Prochain : S6.2 (UI, banc inchangé).
+
 Conception close. Pour exécuter : `/sprint open 06` (orchestration séquentielle S6.1 → S6.2 → S6.3,
 un sous-agent en contexte vierge par sous-sprint). Chaque sous-agent lit `CLAUDE.md` + ce fichier +
 son amorce `brique_0N_*.md`. Sources de vérité code (déjà repérées) : `CarrouselSimulation.cs`

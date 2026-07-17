@@ -183,4 +183,147 @@ public class CarrouselSimulationTests
         Assert.True(GetRet(store, Pivot.GetSignalByTag("S21")));    // YV2 toujours rentre
         Assert.False(GetRet(store, Pivot.GetSignalByTag("S22")));   // YV2 pas sorti
     }
+
+    // =====================================================================
+    // Forcage des commandes (sprint 6) : substitution de la valeur EFFECTIVE d'un bit `cmd`
+    // en tete de Tick, sans jamais ecrire le datastore. Miroir cote `cmd` du masque capteur.
+    // =====================================================================
+
+    // Relit un bit de commande DANS LE DATASTORE (photo courante), pour prouver que le forcage
+    // ne l'a pas modifie : le forcage vit dans la copie snapshot du Tick, pas dans le transport.
+    private static bool GetCmd(ModbusDataStore store, Signal sig)
+    {
+        ushort[] cmd = store.SnapshotCommands();
+        return sig.ReadBit(cmd[sig.WordRel]);
+    }
+
+    [Fact]
+    public void Forcage_sans_PLC_le_verin_sort_alors_que_cmd_est_a_0()
+    {
+        // Aucune commande PLC (cmd_extend reste a 0 dans le datastore) : le forcage a 1 pilote seul.
+        var store = new ModbusDataStore(Pivot);
+        var sim = new CarrouselSimulation(Pivot);
+        var s12 = Pivot.GetSignalByTag("S12");
+
+        sim.Forces.SetForce("cylinder_1", "cmd_extend", ForceMode.ForceHigh);
+        for (int i = 0; i < 6; i++) sim.Tick(store, 0.1);
+
+        Assert.True(GetRet(store, s12));                 // tige sortie : le forcage a commande la sortie
+        Assert.False(GetCmd(store, Pivot.GetSignal("cylinder_1", "cmd_extend")));  // datastore cmd intact (0)
+    }
+
+    [Fact]
+    public void Forcage_contre_PLC_le_verin_sort_malgre_cmd_a_0()
+    {
+        // Le PLC ecrit explicitement cmd_extend=0 ; le forcage a 1 gagne. Le datastore reste a 0.
+        var store = new ModbusDataStore(Pivot);
+        var sim = new CarrouselSimulation(Pivot);
+        var s12 = Pivot.GetSignalByTag("S12");
+        var extend = Pivot.GetSignal("cylinder_1", "cmd_extend");
+
+        SetCmd(store, extend, false);
+        sim.Forces.SetForce("cylinder_1", "cmd_extend", ForceMode.ForceHigh);
+        for (int i = 0; i < 6; i++) sim.Tick(store, 0.1);
+
+        Assert.True(GetRet(store, s12));       // tige sortie malgre la commande PLC a 0
+        Assert.False(GetCmd(store, extend));   // le datastore `cmd` n'a PAS ete modifie
+    }
+
+    [Fact]
+    public void Forcage_a_0_contre_PLC_le_verin_reste_rentre()
+    {
+        // Le PLC commande la sortie (cmd_extend=1), mais le forcage a 0 neutralise la commande.
+        var store = new ModbusDataStore(Pivot);
+        var sim = new CarrouselSimulation(Pivot);
+        var s11 = Pivot.GetSignalByTag("S11");
+        var s12 = Pivot.GetSignalByTag("S12");
+        var extend = Pivot.GetSignal("cylinder_1", "cmd_extend");
+
+        SetCmd(store, extend, true);
+        sim.Forces.SetForce("cylinder_1", "cmd_extend", ForceMode.ForceLow);
+        for (int i = 0; i < 6; i++) sim.Tick(store, 0.1);
+
+        Assert.True(GetRet(store, s11));      // tige rentree : le forcage a 0 a gagne
+        Assert.False(GetRet(store, s12));
+        Assert.True(GetCmd(store, extend));   // datastore `cmd` toujours a 1 (PLC), non modifie
+    }
+
+    [Fact]
+    public void Forcage_KM1_AUX_suit_la_commande_effective_sans_PLC()
+    {
+        // Forcer cmd_run a 1 (PLC a 0) : la commande effective vue par le convoyeur passe a 1, donc
+        // KM1_AUX colle apres feedback_delay — sans que le PLC ait commande la marche.
+        var store = new ModbusDataStore(Pivot);
+        var sim = new CarrouselSimulation(Pivot);
+        var aux = Pivot.GetSignalByTag("KM1_AUX");
+
+        sim.Forces.SetForce("conveyor", "cmd_run", ForceMode.ForceHigh);
+        sim.Tick(store, 0.1);   // > feedback_delay (0.05 s)
+
+        Assert.True(GetRet(store, aux));
+        Assert.False(GetCmd(store, Pivot.GetSignal("KM1", "cmd_run")));  // datastore cmd intact (0)
+    }
+
+    [Fact]
+    public void Composition_forcage_puis_defaut_le_defaut_physique_gagne()
+    {
+        // Ordre des couches : forcage `cmd` (tete) -> defaut physique. Forcer cmd_extend=1 rend la
+        // commande effective vraie, mais CylinderStuckRetracted force la commande a faux dans
+        // AdvanceCylinder -> la tige reste rentree. Determinisme de la composition prouve.
+        var store = new ModbusDataStore(Pivot);
+        var sim = new CarrouselSimulation(Pivot);
+        var s12 = Pivot.GetSignalByTag("S12");
+
+        sim.Forces.SetForce("cylinder_1", "cmd_extend", ForceMode.ForceHigh);
+        sim.Faults.SetPhysical("cylinder_1", PhysicalFault.CylinderStuckRetracted);
+        for (int i = 0; i < 6; i++) sim.Tick(store, 0.1);
+
+        Assert.False(GetRet(store, s12));   // le defaut physique gagne sur la commande forcee
+    }
+
+    // =====================================================================
+    // Defaut BlockerIneffective (sprint 6) : la tige sort normalement (S12=1) mais le poste est
+    // exclu du blocage -> les palettes traversent. Contraste avec le blocage nominal.
+    // =====================================================================
+
+    [Fact]
+    public void BlockerIneffective_la_palette_traverse_la_tige_pourtant_levee()
+    {
+        var store = new ModbusDataStore(Pivot);
+        var sim = new CarrouselSimulation(Pivot);
+        var s12 = Pivot.GetSignalByTag("S12");
+
+        SetCmd(store, Pivot.GetSignal("KM1", "cmd_run"), true);
+        SetCmd(store, Pivot.GetSignal("cylinder_1", "cmd_extend"), true);
+        sim.Faults.SetPhysical("cylinder_1", PhysicalFault.BlockerIneffective);
+
+        // La tige sort NORMALEMENT (le defaut ne touche pas AdvanceCylinder) : on tourne assez pour
+        // sortir YV1 puis amener une palette dans la fenetre du poste 90°. B1 monte au passage.
+        bool sawB1High = false;
+        for (int i = 0; i < 120; i++)
+        {
+            sim.Tick(store, 0.1);
+            if (GetRet(store, Pivot.GetSignal("B1", "ret_active"))) sawB1High = true;
+        }
+
+        Assert.True(GetRet(store, s12));    // S12=1 : la tige est bien sortie (cinematique nominale)
+        Assert.True(sawB1High);             // une palette est bien passee dans la fenetre (B est monte)
+        // ... mais AUCUNE palette n'est restee parquee a 90° : elles ont traverse la tige levee.
+        Assert.DoesNotContain(sim.Pallets.AnglesDeg, a => Math.Abs(a - 90.0) < 1.0);
+    }
+
+    [Fact]
+    public void Sans_BlockerIneffective_la_palette_reste_bloquee_non_regression()
+    {
+        // Meme scenario SANS le defaut : le blocage nominal tient (une palette se park a ~90°).
+        var store = new ModbusDataStore(Pivot);
+        var sim = new CarrouselSimulation(Pivot);
+        SetCmd(store, Pivot.GetSignal("KM1", "cmd_run"), true);
+        SetCmd(store, Pivot.GetSignal("cylinder_1", "cmd_extend"), true);
+
+        for (int i = 0; i < 120; i++) sim.Tick(store, 0.1);
+
+        Assert.True(GetRet(store, Pivot.GetSignal("B1", "ret_active")));
+        Assert.Contains(sim.Pallets.AnglesDeg, a => Math.Abs(a - 90.0) < 1.0);
+    }
 }

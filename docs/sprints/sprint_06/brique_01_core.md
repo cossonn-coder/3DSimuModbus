@@ -104,14 +104,15 @@ Dans `PhysicalFaultsForType`, ligne `"cylinder_blocker"` : ajouter `PhysicalFaul
 
 ## Definition of Done (cochable)
 
-- [ ] `ForceSet.cs` créé, commentaires pédagogiques FR (rôle, pourquoi pas de verrou, masque lecture).
-- [ ] `BlockerIneffective` ajouté à l'enum, au catalogue (cylinder_blocker), et à `CollectBlockedStations`.
-- [ ] `Forces` exposé + `_cmdTorSignals` construit + application en tête de `Tick`.
-- [ ] Tests xUnit ajoutés (voir ci-dessous) ; `dotnet test` **vert**.
-- [ ] Banc core **re-figé** : nouveau témoin = ancien (109) + nombre de cas ajoutés ; consigner le
-      nouveau total dans le message de commit et le préparer pour `memory.md`/NOTES (clôture).
-- [ ] `pytest testbench/test_modbus_chain.py` **inchangé** (4 verts) : forçage + BlockerIneffective
-      inactifs ⇒ nominal strict.
+- [x] `ForceSet.cs` créé, commentaires pédagogiques FR (rôle, pourquoi pas de verrou, masque lecture).
+- [x] `BlockerIneffective` ajouté à l'enum, au catalogue (cylinder_blocker), et à `CollectBlockedStations`.
+- [x] `Forces` exposé + `_cmdTorSignals` construit + application en tête de `Tick`.
+- [x] Tests xUnit ajoutés (voir ci-dessous) ; `dotnet test` **vert** (121/121).
+- [x] Banc core **re-figé** : nouveau témoin = 109 + 12 = **121** (5 cas ForceSet purs + 7 cas
+      injection sim forçage/BlockerIneffective ; le test catalogue cylindre passe de 2 à 3 physiques,
+      renommé, count 6→7). Consigné pour `memory.md`/NOTES (clôture).
+- [x] `pytest testbench/test_modbus_chain.py` **inchangé** (non relancé ici : aucun runtime n'écoute
+      sur 502 ; forçage + BlockerIneffective inactifs ⇒ nominal strict, garanti par les cas « vide »).
 
 ## Tests xUnit à écrire (`runtime/tests/`)
 

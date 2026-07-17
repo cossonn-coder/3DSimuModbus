@@ -34,6 +34,7 @@ public enum PhysicalFault
     CylinderStuckRetracted,   // verin qui ne sort plus : reste rentre quelle que soit la commande
     CylinderStuckMidStroke,   // verin coince : position gelee (ni sortie ni rentree)
     ConveyorSlip,             // convoyeur qui patine : KM1_AUX confirme, mais palettes figees
+    BlockerIneffective,       // tige levee (S12=1, cinematique nominale) mais poste EXCLU du blocage : palettes traversent
 }
 
 /// <summary>Mode d'un capteur bloque : force le bit `ret` a 0 (Low) ou a 1 (High).</summary>

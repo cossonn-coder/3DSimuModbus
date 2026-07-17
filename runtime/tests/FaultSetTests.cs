@@ -138,15 +138,17 @@ public class FaultSetTests
     // =====================================================================
 
     [Fact]
-    public void Catalog_cylindre_2_physiques_plus_stuck_par_S11_S12()
+    public void Catalog_cylindre_3_physiques_plus_stuck_par_S11_S12()
     {
         var cmds = FaultCatalog.ApplicableTo(Pivot.GetComponent("cylinder_1"));
 
-        // 2 physiques + (ret_retracted Low/High) + (ret_extended Low/High) = 6, aucun Repair.
-        Assert.Equal(6, cmds.Count);
+        // 3 physiques (retracted + mid-stroke + blocker-ineffective, sprint 6) + (ret_retracted
+        // Low/High) + (ret_extended Low/High) = 7, aucun Repair.
+        Assert.Equal(7, cmds.Count);
         Assert.DoesNotContain(cmds, c => c.Kind == FaultKind.Repair);
         Assert.Contains(cmds, c => c.Kind == FaultKind.Physical && c.Physical == PhysicalFault.CylinderStuckRetracted);
         Assert.Contains(cmds, c => c.Kind == FaultKind.Physical && c.Physical == PhysicalFault.CylinderStuckMidStroke);
+        Assert.Contains(cmds, c => c.Kind == FaultKind.Physical && c.Physical == PhysicalFault.BlockerIneffective);
         Assert.Contains(cmds, c => c.Kind == FaultKind.SensorStuck && c.SignalName == "ret_retracted" && c.Stuck == StuckMode.Low);
         Assert.Contains(cmds, c => c.Kind == FaultKind.SensorStuck && c.SignalName == "ret_retracted" && c.Stuck == StuckMode.High);
         Assert.Contains(cmds, c => c.Kind == FaultKind.SensorStuck && c.SignalName == "ret_extended" && c.Stuck == StuckMode.Low);

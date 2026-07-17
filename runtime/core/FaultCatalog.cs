@@ -63,7 +63,7 @@ public static class FaultCatalog
     /// </summary>
     private static IEnumerable<PhysicalFault> PhysicalFaultsForType(string type) => type switch
     {
-        "cylinder_blocker" => new[] { PhysicalFault.CylinderStuckRetracted, PhysicalFault.CylinderStuckMidStroke },
+        "cylinder_blocker" => new[] { PhysicalFault.CylinderStuckRetracted, PhysicalFault.CylinderStuckMidStroke, PhysicalFault.BlockerIneffective },
         "conveyor_circular" => new[] { PhysicalFault.ConveyorSlip },
         _ => Array.Empty<PhysicalFault>(),
     };
