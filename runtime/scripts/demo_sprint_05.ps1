@@ -34,9 +34,17 @@
 # NB encodage : ASCII pur (pas d'accents ni de tirets longs). Windows PowerShell 5.1 lit les
 # .ps1 sans BOM en Windows-1252 ; un caractere multi-octet dans une chaine casserait le parseur.
 #
+# Rythme de la demo (IMPORTANT) :
+#   Par DEFAUT la demo est INTERACTIVE : a chaque phase, elle affiche TOUTES les consignes
+#   (ce qu il faut faire dans l IHM + ce qu il faut regarder) puis ATTEND que tu appuies sur
+#   ENTREE avant de lancer le scan (l automate reprend la main). Tu prends donc le temps de lire,
+#   de preparer l IHM et de comprendre les consequences de chaque defaut, sans course contre la
+#   montre. Passe -Prep <n> pour au contraire enchainer AUTOMATIQUEMENT avec un decompte de n
+#   secondes par phase (utile pour une demo qui tourne seule, sans personne au clavier).
+#
 # Usage :
-#   powershell -File runtime/scripts/demo_sprint_05.ps1
-#   powershell -File runtime/scripts/demo_sprint_05.ps1 -Prep 10        # temps de prepa/phase (s)
+#   powershell -File runtime/scripts/demo_sprint_05.ps1                 # interactif (ENTREE = go)
+#   powershell -File runtime/scripts/demo_sprint_05.ps1 -Prep 10        # auto : decompte 10 s/phase
 #   powershell -File runtime/scripts/demo_sprint_05.ps1 -PyHost 127.0.0.1 -Port 502
 #
 # Prerequis : la scene Godot LANCEE (F5) et a l'ecoute sur 502 ; Python + pymodbus.
@@ -44,8 +52,13 @@
 param(
     [string]$PyHost = '127.0.0.1',
     [int]$Port = 502,
-    [int]$Prep = 9         # secondes laissees pour injecter/reparer dans l'IHM avant chaque scan
+    [int]$Prep = 9         # secondes de decompte/phase EN MODE AUTO (ignore en interactif) ; voir -Prep
 )
+
+# Mode interactif = defaut. Il devient AUTO (decompte) uniquement si -Prep est passe explicitement.
+# On distingue "non fourni" de "fourni a 9" via $PSBoundParameters : sinon le defaut a 9 masquerait
+# l intention de l utilisateur.
+$script:Interactive = -not $PSBoundParameters.ContainsKey('Prep')
 
 # On NE met PAS $ErrorActionPreference='Stop' : io_scanner ecrit ses echecs de connexion sur
 # stderr (notamment en PHASE COUPURE TCP, ou la perte de l'esclave est VOULUE) ; sous 'Stop'
@@ -99,22 +112,30 @@ Write-Host "Serveur sur ${PyHost}:${Port} tenu par '$owner' - OK." -ForegroundCo
 
 $period = 0.1                       # 100 ms = cadence de scan (aligne sur le heartbeat)
 
-# --- Pause de preparation : laisse a l'humain le temps de cliquer dans l'IHM -----------------
-# La demo VALIDE l'IHM : c'est TOI qui injectes/repare les defauts. Cette pause affiche les
-# consignes puis decompte les secondes avant que io_scanner ne lance son scan. Non bloquante
-# (pas de Read-Host) : le rythme est fixe par -Prep, on ne reste jamais coince.
-function Wait-Ready {
-    param(
-        [string[]]$Do,          # consignes A FAIRE dans l'IHM avant le scan
-        [int]     $Seconds
-    )
-    foreach ($d in $Do) { Write-Host ("  A FAIRE dans l'IHM : " + $d) -ForegroundColor Yellow }
-    if ($Seconds -gt 0) {
+# --- Pause avant le scan : laisse a l'humain le temps de lire et de preparer l'IHM -----------
+# La demo VALIDE l'IHM : c'est TOI qui injectes/repare les defauts. Cette pause intervient APRES
+# l'affichage de toutes les consignes (a faire + a regarder), juste avant que io_scanner ne
+# reprenne la main. Deux rythmes :
+#   - INTERACTIF (defaut) : on ATTEND que tu appuies sur ENTREE. Tu lis, tu prepares, tu declenches
+#     quand tu es pret -> aucune course contre la montre pour comprendre chaque defaut.
+#   - AUTO (-Prep n) : decompte de n secondes puis scan, sans intervention (demo qui tourne seule).
+# Read-Host est ici volontaire : le script est lance a la main dans un terminal interactif, et
+# c'est precisement la pause "je reprends mon souffle" demandee. En mode AUTO on ne l'appelle pas.
+function Wait-Go {
+    param([int]$Seconds)        # duree du decompte EN MODE AUTO uniquement
+    if ($script:Interactive) {
+        Write-Host ''
+        $null = Read-Host '  >>> Prepare l IHM tranquillement, puis appuie sur ENTREE pour lancer le scan (l automate reprend la main)'
+    }
+    elseif ($Seconds -gt 0) {
         for ($s = $Seconds; $s -gt 0; $s--) {
             Write-Host ("`r  ... prepare l'IHM, scan dans {0,2}s " -f $s) -NoNewline -ForegroundColor DarkGray
             Start-Sleep -Seconds 1
         }
         Write-Host "`r  ... lancement du scan.               " -ForegroundColor DarkGray
+    }
+    else {
+        Start-Sleep -Milliseconds 700   # phase sans preparation : petit temps de lecture de la banniere
     }
 }
 
@@ -135,11 +156,13 @@ function Invoke-Phase {
     $dur = [math]::Round($Cycles * $period, 1)
     Write-Host ''
     Write-Host ('=== {0}   (~{1}s de scan) ===' -f $Title, $dur) -ForegroundColor Cyan
-    if ($Inject.Count -gt 0) { Wait-Ready -Do $Inject -Seconds $PrepSeconds }
+    # On affiche d'abord TOUTES les consignes (a faire + a regarder), PUIS on marque la pause :
+    # ainsi rien ne defile entre la lecture et la reprise de main de l'automate.
+    foreach ($d in $Inject) { Write-Host ("  A FAIRE dans l'IHM : " + $d) -ForegroundColor Yellow }
     Write-Host '  CE QU IL FAUT REGARDER (3D <-> console PLC) :' -ForegroundColor White
     foreach ($w in $Watch) { Write-Host ("    - " + $w) -ForegroundColor White }
     Write-Host ('  commande M580 (io_scanner) : ' + ($CmdArgs -join ' ')) -ForegroundColor DarkGray
-    Start-Sleep -Milliseconds 700   # laisse lire la banniere avant le flot de lignes
+    Wait-Go -Seconds $PrepSeconds   # ENTREE (interactif) ou decompte (-Prep) avant le scan
 
     Push-Location $testbench
     & $py io_scanner_sim.py --host $PyHost --port $Port @CmdArgs --cycles $Cycles --period $period
@@ -271,7 +294,12 @@ Write-Host ''
 Write-Host 'Demo injection de defauts sprint 5 - regarde la fenetre Godot et suis le guidage console.'
 Write-Host '  8 familles : verin ne sort pas / coince mi-course / capteur menteur / convoyeur patine /'
 Write-Host '  gel retours / coupure TCP / mode aveugle. TU injectes dans l IHM ; io_scanner montre le PLC.'
-Write-Host ("  Temps de preparation par phase : {0}s (option -Prep pour l ajuster)." -f $Prep) -ForegroundColor DarkGray
+if ($script:Interactive) {
+    Write-Host '  Rythme INTERACTIF : a chaque phase, lis les consignes, prepare l IHM, puis ENTREE pour lancer le scan.' -ForegroundColor DarkGray
+    Write-Host '  (Passe -Prep <n> pour enchainer automatiquement avec un decompte de n secondes par phase.)' -ForegroundColor DarkGray
+} else {
+    Write-Host ("  Rythme AUTO : decompte de {0}s par phase avant chaque scan (relance sans -Prep pour le mode interactif)." -f $Prep) -ForegroundColor DarkGray
+}
 
 Invoke-Sequence
 
