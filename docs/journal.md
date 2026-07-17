@@ -6,6 +6,45 @@ surpris, décisions prises (reportées dans memory.md), état des tests.
 
 ---
 
+## 2026-07-17 — Clôture sprint 5 « Injection de défauts » (`/sprint close 05`)
+
+**Contexte** : les 5 sous-sprints orchestrés par `/sprint open 05` sont livrés, committés et
+pushés (`8f3437d`, `9c4e9a3`, `39cf7af`, `f44eb24`, `7b9f62b`). Séquence tenue
+S5.1 → S5.2 → S5.3 → S5.4 → S5.5, séquentielle stricte (S5.2/S5.3/S5.4 partagent
+`CarrouselScene.cs`), un sous-agent cold-start par sous-sprint, banc re-vérifié par
+l'orchestrateur avant chaque commit.
+
+**Action** : capacité complète d'**injection de défauts** depuis l'IHM, **sans jamais écrire
+un mot Modbus**.
+- **S5.1** cœur pur : `FaultSet`/`FaultCatalog`/`FaultCommand` (`CarrouselCore`), injection en
+  tête de `Tick` (vérin coincé/ne sort pas, convoyeur patine KM1_AUX intact, capteur masqué
+  **après** encodage, `RetFrozen` = ni heartbeat ni publication). Aucun mot forcé au datastore.
+- **S5.2** sélection persistante clic 3D↔ligne + clavier (`]`/`[`), priorité émission
+  sélection>survol>repos, **D-018 soldée**.
+- **S5.3** menu « Défaut » par ligne (peuplé de `FaultCatalog`), marquage rouge (priorité
+  défaut>sélection>survol), colonne libellé, **mode aveugle `B`**, 1re écriture IHM→sim.
+- **S5.4** coupure comm : `Disconnect()`/`Reconnect()` sur `ModbusServer` (spike concluant :
+  réarmement direct, pas de recréation) + gel `ret` ; contrôles comm toujours visibles au HUD ;
+  incohérence 3D/PLC pédagogique assumée.
+- **S5.5** `demo_sprint_05.ps1` (8 phases guidées), script seul.
+
+**Surprise / point dur** : le spike FluentModbus a tranché net (réarmement sur la même
+instance après `Stop()`/`Start()`, unité+buffer conservés) — consigné dans `memory.md`.
+
+**Tests** : banc **core 89 → 109** (S5.1, re-figeage prévu) + **serveur 6 → 10** (S5.4,
+re-figeage prévu) = **119 verts**, inchangé en S5.2/S5.3/S5.5. Build Godot 0 erreur, script
+démo PARSE OK. **4 pytest full-chain non impactés** (défaut inactif = nominal ; skippent tant
+qu'aucun runtime n'écoute sur 502). **Validation visuelle Nico restante** (F5 +
+`demo_sprint_05.ps1` : marquage 3D, sélection, mode aveugle, coupure/réparation comm).
+
+**Dettes** : **D-017 soldée** (injection de défauts livrée) ; **D-018 soldée** (S5.2). D-016
+(édition in-app) préparée par la colonne « Défaut » réutilisable. Aucune dette nouvelle.
+
+**Suite** : validation visuelle Nico ; puis campagne M580 réelle (Phase 4) — la stack de
+défauts est prête à éprouver le programme automate.
+
+---
+
 ## 2026-07-17 — Ouverture sprint 5 « Injection de défauts » (`/sprint open 05`)
 
 **Contexte** : conception figée (5 amorces + overview + 00_etat). Arbre git remis propre avant

@@ -1,13 +1,16 @@
-# Sprint 05 « Injection de défauts » — état de sprint
+# Sprint 05 « Injection de défauts » — état de sprint (CLOS 2026-07-17)
 
 > Carnet vivant, tenu à jour par chaque sous-sprint. Reprise à froid = `CLAUDE.md` + ce fichier
 > (+ l'amorce du sous-sprint courant). Conception figée le **2026-07-17** (`/conception`).
+> **Sprint CLÔTURÉ le 2026-07-17** (`/sprint close 05`) : NOTES.md rédigé, journal/memory/dettes/backlog à jour.
 
 ## Où on en est
-**S5.1 + S5.2 + S5.3 + S5.4 + S5.5 livrées. Sprint complet (5/5).**
-Banc vert : **xUnit core 109** (INCHANGÉ) + **serveur 10** (INCHANGÉ) = **119 au total**. Build Godot
-**0 erreur**. S5.5 = **script de démo seul** (aucun code de prod touché), banc **intact confirmé**.
+**SPRINT CLOS (5/5).** S5.1 → S5.5 livrées, committées, pushées (`8f3437d`, `9c4e9a3`, `39cf7af`,
+`f44eb24`, `7b9f62b`) ; ouverture `6025925`.
+Banc vert : **xUnit core 109** + **serveur 10** = **119 au total**. Build Godot **0 erreur**, script démo
+PARSE OK. S5.5 = **script de démo seul** (aucun code de prod touché), banc **intact confirmé**.
 Les 4 pytest full-chain **skippent** tant qu'aucun runtime Godot n'écoute sur 502 (état nominal).
+**D-017 et D-018 soldées.** Reste : **validation visuelle Nico** (voir REPRISE).
 
 ## Intention
 Forcer depuis l'IHM un défaut **physique ou de comm** par élément, pour éprouver le M580 — **sans
@@ -46,11 +49,20 @@ S5.2→S5.3→S5.4 partagent `CarrouselScene.cs` ⇒ **strictement séquentiels*
 - **Incohérence 3D/PLC assumée** pendant la coupure (sim animée, `ret` figé / TCP coupé) — message pédagogique voulu.
 
 ## Reste à faire
-**Sprint terminé (5/5).** Reste la **clôture** (`/sprint close 05` : journal, memory, dettes, backlog,
-NOTES) et le commit/push par l'orchestrateur. **Validation manuelle Nico** de la démo (voir REPRISE).
+**Sprint clos.** Clôture faite (NOTES.md, journal, memory, dettes, backlog, ce carnet). Seul reste
+côté humain : la **validation visuelle Nico** de la démo (voir REPRISE). Suite projet : campagne M580
+réelle (Phase 4 du backlog).
 
 ## REPRISE
-**S5.1 + S5.2 + S5.3 + S5.4 + S5.5 livrées, non committées** (l'orchestrateur commit).
+**Sprint 05 CLOS.** Prochaine action côté Nico : **validation visuelle** — lancer la scène (F5), puis
+`powershell -File runtime/scripts/demo_sprint_05.ps1` dans un autre terminal ; suivre les 8 phases,
+injecter/réparer les défauts dans l'IHM aux moments indiqués, vérifier la corrélation 3D ↔ retours PLC
+(marquage rouge, sélection cyan clic 3D↔ligne, cyclage `]`/`[`, mode aveugle `B`, coupure/réparation
+TCP, gel des retours). Suite projet : **Phase 4 — intégration M580 réelle** (la stack de défauts est
+prête à éprouver le programme automate). Détails pédagogiques : `docs/sprints/sprint_05/NOTES.md`.
+
+### Historique de livraison (pour trace)
+**S5.1 + S5.2 + S5.3 + S5.4 + S5.5 livrées et committées** par l'orchestrateur.
 **S5.5 — fichier ajouté (1)** : `runtime/scripts/demo_sprint_05.ps1` (démo guidée 8 phases, script SEUL,
 aucun code de prod touché). Style/pré-vol calqués sur `demo_sprint_04.ps1` (pré-vol 502 refusant SimHost
 ou port libre ; ASCII pur ; PS 5.1). Boucle `Invoke-Phase` (consignes IHM + pause `-Prep` décomptée non
