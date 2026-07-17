@@ -6,6 +6,39 @@ surpris, décisions prises (reportées dans memory.md), état des tests.
 
 ---
 
+## 2026-07-17 — Conception sprint 5 « Injection de défauts » (`/conception`)
+
+**Objectif** : cadrer l'architecture pour forcer depuis l'IHM un défaut **physique ou de comm**
+par élément, afin d'éprouver le M580 face aux défauts — **sans jamais écrire un mot Modbus**.
+Nourrit la campagne M580 réelle (Phase 4) qui démarre le même jour. Solde **D-017** ; prépare **D-016**.
+
+**Fait** : phase A (dialogue + challenge), 2 tours de QCM tranchés, découpage figé en
+**5 sous-sprints bornés** (< ~150K tokens/agent, cf. consigne budget tokens de Nico). Livrables
+figés : `docs/sprints/sprint_05/overview.md`, `00_etat.md`, `brique_01_faultset.md` …
+`brique_05_demo.md`. **Aucun code d'implémentation** (métier de `/sprint open`).
+
+**Décisions clés** :
+- Défaut dans la **sim pure** (`FaultSet`/`FaultCatalog`/`FaultCommand` en `CarrouselCore`),
+  appliqué en tête de `Tick` ; masque capteur **après encodage**, jamais au datastore (invariant D-016).
+- **D-Q1** coupure comm = gel `ret` (heartbeat inclus) **+ déconnexion TCP réelle** (2 modes ;
+  la déconnexion touche `ModbusServer` → sous-sprint dédié + spike FluentModbus).
+- **D-Q2** capteur-bloqué 0/1 **générique sur tout bit `ret` TOR** + physique vérin/convoyeur.
+- **D-Q3** marquage visible + **mode aveugle** ; **D-Q4** souris + clavier ; **D-Q5** MenuButton par
+  ligne + colonne « Défaut » (réutilisé par D-016).
+- **D-018** soldée au passage en S5.2 (fichier `CarrouselScene.cs` touché).
+
+**Surprise / point dur** : réutilisabilité de `ModbusTcpServer` après `Stop()` (FluentModbus 5.3.2)
+à vérifier avant de coder la déconnexion TCP (S5.4). Incohérence 3D/PLC pendant la coupure = message
+pédagogique assumé.
+
+**Tests** : aucun changement (conception). Plan de banc : xUnit re-figé en S5.1 (scénarios défaut)
+puis en S5.4 (déconnexion/reconnexion serveur) ; **4 pytest full-chain inchangés** sur tout le sprint.
+
+**Note arbre git** : `runtime/project.godot` était déjà modifié (élagage Godot des commentaires,
+dette D-014) — **hors périmètre conception**, non committé ici, signalé à Nico.
+
+**Suite** : `/clear` puis `/sprint open 05`.
+
 ## 2026-07-16 — Conception Sprint 4 : ergonomie d'utilisation (navigation + panneau + plein écran)
 
 **Contexte** : sprint 3 clos, `demo_sprint_03.ps1` déroulé avec succès (pré-vol 502 conforme,
