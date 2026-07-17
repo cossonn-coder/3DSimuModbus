@@ -43,6 +43,9 @@ public sealed class CarrouselSimulation
 	// « cablage » entre un modele pur et ses adresses Modbus, resolu une fois au constructeur.
 	private sealed class CylinderUnit
 	{
+		// Id du composant dans le pivot (cylinder_1/cylinder_2) : sert de cle pour interroger le
+		// FaultSet (GetPhysical) — c'est le meme identifiant que celui expose au menu de l'UI.
+		public string Id { get; }
 		public CylinderState State { get; }
 		public Signal CmdExtend { get; }
 		public Signal RetRetracted { get; }
@@ -52,8 +55,9 @@ public sealed class CarrouselSimulation
 		// obstacle fixe pour les palettes (brique 4b) : c'est ce que Tick transmet a PalletSet.
 		public double StationAngleDeg { get; }
 
-		private CylinderUnit(CylinderState state, Signal cmdExtend, Signal retRetracted, Signal retExtended, double stationAngleDeg)
+		private CylinderUnit(string id, CylinderState state, Signal cmdExtend, Signal retRetracted, Signal retExtended, double stationAngleDeg)
 		{
+			Id = id;
 			State = state;
 			CmdExtend = cmdExtend;
 			RetRetracted = retRetracted;
@@ -73,6 +77,7 @@ public sealed class CarrouselSimulation
 				blockThreshold: c.GetParam("block_threshold"));
 
 			return new CylinderUnit(
+				c.Id,
 				state,
 				pivot.GetSignal(compId, "cmd_extend"),
 				pivot.GetSignal(compId, "ret_retracted"),
@@ -112,6 +117,20 @@ public sealed class CarrouselSimulation
 	private readonly Signal _km1Aux;
 	private readonly ConveyorState _conveyor;
 
+	// Id du composant convoyeur dans le pivot (= "conveyor", tag KM1). Cle pour interroger le
+	// FaultSet (defaut physique ConveyorSlip) — memorise pour ne pas coder "conveyor" en dur.
+	private readonly string _conveyorId;
+
+	// Injection de defauts (sprint 5). Objet mutable partage : l'IHM le mute entre deux ticks,
+	// le Tick le lit en tete. Pas de verrou (aucun thread serveur n'y touche, cf. FaultSet).
+	// Un FaultSet vide => comportement STRICTEMENT nominal (aucun test full-chain perturbe).
+	public FaultSet Faults { get; } = new();
+
+	// Table des signaux `ret` TOR indexes par (composant, nom), construite une fois au constructeur.
+	// Sert a l'etape « capteur-bloque » du Tick : resoudre un (compId, sigName) actif en Signal pour
+	// forcer son bit APRES l'encodage nominal. On ne garde QUE cette projection du pivot, pas le pivot.
+	private readonly Dictionary<(string ComponentId, string SignalName), Signal> _retTorSignals = new();
+
 	private readonly CylinderUnit _cyl1;
 	private readonly CylinderUnit _cyl2;
 
@@ -136,6 +155,7 @@ public sealed class CarrouselSimulation
 		_heartbeatSig = pivot.Heartbeat;
 
 		var km1 = pivot.GetComponent("KM1");
+		_conveyorId = km1.Id;
 		_cmdRun = pivot.GetSignal("KM1", "cmd_run");
 		_km1Aux = pivot.GetSignal("KM1", "ret_running");
 		_conveyor = new ConveyorState(feedbackDelayS: km1.GetParam("feedback_delay_ms") / 1000.0);
@@ -149,6 +169,14 @@ public sealed class CarrouselSimulation
 		_palletSpeedDegPerS = km1.GetParam("speed_deg_per_s");
 		_b1 = PresenceUnit.FromPivot(pivot, "presence_station_1");
 		_b2 = PresenceUnit.FromPivot(pivot, "presence_station_2");
+
+		// Index des signaux `ret` TOR (compId, name) -> Signal, pour le masque capteur-bloque du
+		// Tick. Parcours generique de TOUS les composants du pivot : couvre S11..S22, B1/B2 et
+		// ret_running sans code specifique, et absorbera les signaux d'une machine future inconnue.
+		foreach (var comp in pivot.Components.Values)
+			foreach (var sig in comp.Signals.Values)
+				if (sig.IsTor && sig.Zone == "ret")
+					_retTorSignals[(comp.Id, sig.Name)] = sig;
 	}
 
 	// --- Accces lecture seule a l'etat interne (pour la 3D brique 5 et les tests) ---
@@ -189,16 +217,29 @@ public sealed class CarrouselSimulation
 		bool extend2 = _cyl2.CmdExtend.ReadBit(cmd[_cyl2.CmdExtend.WordRel]);
 
 		// 3. Avancement de la cinematique scriptee de dt (chaque modele est autonome).
+		//    Le contact KM1_AUX suit TOUJOURS la commande (meme si le convoyeur patine : voir 3bis).
 		_conveyor.Advance(dtSeconds, run);
-		_cyl1.State.Advance(dtSeconds, extend1);
-		_cyl2.State.Advance(dtSeconds, extend2);
+		// Verins : un defaut physique detourne l'avancement (position gelee, ou commande forcee faux).
+		AdvanceCylinder(_cyl1, dtSeconds, extend1);
+		AdvanceCylinder(_cyl2, dtSeconds, extend2);
 
 		// 3bis. Palettes (brique 4b) : un verin ENGAGE (position > block_threshold) transforme son
 		//       poste en obstacle fixe. On collecte les postes bloques APRES l'avance des verins
 		//       (etat courant), puis on avance les palettes ; leur rotation suit le convoyeur REEL
 		//       (IsRunning = KM1_AUX), pas la commande brute, coherent avec le comportement physique.
+		//       Defaut ConveyorSlip : le convoyeur « patine » — KM1_AUX reste a 1 (marche confirmee)
+		//       mais les palettes n'avancent plus. On force donc conveyorRunning=false ICI seulement,
+		//       sans toucher a _conveyor (dont l'etat reste la marche reelle vue par le PLC).
+		bool slip = Faults.GetPhysical(_conveyorId) == PhysicalFault.ConveyorSlip;
+		bool palletsRunning = _conveyor.IsRunning && !slip;
 		double[] blocked = CollectBlockedStations();
-		_pallets.Advance(dtSeconds, _conveyor.IsRunning, _palletSpeedDegPerS, blocked);
+		_pallets.Advance(dtSeconds, palletsRunning, _palletSpeedDegPerS, blocked);
+
+		// 3ter. Gel `ret` (RetFrozen) : la physique ci-dessus a bien tourne (la 3D bougera), mais on
+		//       n'incremente PAS le heartbeat et on ne publie PAS — le datastore conserve ses derniers
+		//       `ret`. Le PLC voit une image totalement figee (detection de sim morte). Tout-ou-rien.
+		if (Faults.RetFrozen)
+			return;
 
 		// 4. Heartbeat : +1 par tick, rollover ushort naturel (preuve de vie pour le PLC).
 		_heartbeat++;
@@ -216,8 +257,44 @@ public sealed class CarrouselSimulation
 		WritePresence(ret, _b1);
 		WritePresence(ret, _b2);
 
+		// 5bis. Capteurs bloques : APRES l'encodage nominal, on force chaque bit `ret` TOR marque
+		//       stuck a 0 (Low) ou 1 (High). C'est un MASQUE cote sim — on ne force jamais le
+		//       datastore lui-meme (invariant D-016). Generique : couvre S11..S22, B1/B2, KM1_AUX.
+		foreach (var (compId, sigName, mode) in Faults.ActiveStucks)
+		{
+			// Defensif : un stuck sur un signal absent de l'index (compId/nom errone) est ignore
+			// plutot que de faire planter le tick — l'UI ne propose que des signaux valides.
+			if (_retTorSignals.TryGetValue((compId, sigName), out var sig))
+				sig.WriteBit(ref ret[sig.WordRel], mode == StuckMode.High);
+		}
+
 		// 6. Publication d'un bloc en fin de tick : le PLC lira un jeu de retours coherent.
 		store.PublishReturns(ret);
+	}
+
+	/// <summary>
+	/// Avance un verin en tenant compte de son defaut physique (sprint 5) :
+	/// <list type="bullet">
+	/// <item><see cref="PhysicalFault.CylinderStuckMidStroke"/> : on n'appelle PAS Advance — la
+	/// position reste figee a sa valeur courante (verin coince mecaniquement).</item>
+	/// <item><see cref="PhysicalFault.CylinderStuckRetracted"/> : Advance avec commande forcee a
+	/// faux — l'electrovanne est comme non alimentee, le ressort ramene/maintient la tige rentree.</item>
+	/// <item>sinon : comportement nominal (Advance avec la vraie commande).</item>
+	/// </list>
+	/// </summary>
+	private void AdvanceCylinder(CylinderUnit u, double dt, bool cmdExtend)
+	{
+		switch (Faults.GetPhysical(u.Id))
+		{
+			case PhysicalFault.CylinderStuckMidStroke:
+				break;   // position gelee : aucun avancement
+			case PhysicalFault.CylinderStuckRetracted:
+				u.State.Advance(dt, false);   // commande effective forcee faux
+				break;
+			default:
+				u.State.Advance(dt, cmdExtend);
+				break;
+		}
 	}
 
 	/// <summary>Encode les deux fins de course d'un verin dans la zone ret.</summary>

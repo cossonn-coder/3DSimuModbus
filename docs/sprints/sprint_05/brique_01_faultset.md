@@ -82,17 +82,17 @@ public static class FaultCatalog
   principal) : pas de verrou (contrairement au datastore, aucun thread serveur n'y touche).
 
 ## Definition of Done (cochable)
-- [ ] `FaultSet`, `FaultCommand`, `FaultCatalog` créés dans `CarrouselCore`, compilent.
-- [ ] `CarrouselSimulation.Faults` exposé ; `Tick` applique les 3 familles selon l'ordre ci-dessus.
-- [ ] **Nominal préservé** : sans aucun défaut, `Tick` produit exactement les mêmes `ret` qu'avant.
-- [ ] Tests xUnit (`FaultSetTests`) couvrant :
-  - vérin `CylinderStuckRetracted` : commande extend mais `S12` reste 0 / `S11` reste 1 ;
-  - vérin `CylinderStuckMidStroke` : position gelée entre 2 ticks (ni sortie ni rentrée) ;
-  - convoyeur `ConveyorSlip` : `KM1_AUX`=1 (marche confirmée) mais palettes/`B1`/`B2` figés ;
-  - capteur-bloqué `High`/`Low` sur `S12`, sur `B1`, sur `ret_running` (KM1_AUX collé) ;
-  - `RetFrozen` : heartbeat et bits `ret` du datastore inchangés sur plusieurs ticks ;
-  - `ClearComponent` / `SetPhysical(None)` restaurent le nominal ;
-  - `FaultCatalog.ApplicableTo` : cylinder → 2 physiques + stuck×2 par S11/S12 ; sensor → stuck×2
+- [x] `FaultSet`, `FaultCommand`, `FaultCatalog` créés dans `CarrouselCore`, compilent.
+- [x] `CarrouselSimulation.Faults` exposé ; `Tick` applique les 3 familles selon l'ordre ci-dessus.
+- [x] **Nominal préservé** : sans aucun défaut, `Tick` produit exactement les mêmes `ret` qu'avant.
+- [x] Tests xUnit (`FaultSetTests`) couvrant :
+  - [x] vérin `CylinderStuckRetracted` : commande extend mais `S12` reste 0 / `S11` reste 1 ;
+  - [x] vérin `CylinderStuckMidStroke` : position gelée entre 2 ticks (ni sortie ni rentrée) ;
+  - [x] convoyeur `ConveyorSlip` : `KM1_AUX`=1 (marche confirmée) mais palettes/`B1`/`B2` figés ;
+  - [x] capteur-bloqué `High`/`Low` sur `S12`, sur `B1`, sur `ret_running` (KM1_AUX collé) ;
+  - [x] `RetFrozen` : heartbeat et bits `ret` du datastore inchangés sur plusieurs ticks ;
+  - [x] `ClearComponent` / `SetPhysical(None)` restaurent le nominal ;
+  - [x] `FaultCatalog.ApplicableTo` : cylinder → 2 physiques + stuck×2 par S11/S12 ; sensor → stuck×2
     sur ret_active ; conveyor → patine + stuck×2 sur ret_running.
 
 ## Banc attendu — **re-figé**

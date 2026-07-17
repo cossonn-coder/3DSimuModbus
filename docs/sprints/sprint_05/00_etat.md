@@ -4,8 +4,8 @@
 > (+ l'amorce du sous-sprint courant). Conception figée le **2026-07-17** (`/conception`).
 
 ## Où on en est
-Phase B **figée** : `overview.md` + 5 amorces autosuffisantes rédigées. Prêt pour `/sprint open 05`.
-Aucune implémentation encore livrée.
+**S5.1 livrée** (cœur pur d'injection de défauts). Reste S5.2 → S5.5.
+Banc vert : **xUnit core 109** (89 → 109, +20 scénarios de défaut) + **serveur 6 inchangé** = 115 au total.
 
 ## Intention
 Forcer depuis l'IHM un défaut **physique ou de comm** par élément, pour éprouver le M580 — **sans
@@ -28,7 +28,7 @@ KM1_AUX intact ; capteur-bloqué ⇒ masque du bit **après** encodage ; `RetFro
 publication. **Défaut inactif = nominal ⇒ 4 pytest inchangés.**
 
 ## Carte des sous-sprints (5, ordre d'orchestration)
-1. **S5.1** `brique_01_faultset.md` — cœur pur (headless/xUnit). **Banc re-figé** (+scénarios défaut). Indépendant.
+1. [x] **S5.1** `brique_01_faultset.md` — cœur pur (headless/xUnit). **Banc re-figé** (89 → 109, +20). Indépendant. **LIVRÉE**.
 2. **S5.2** `brique_02_selection.md` — sélection clic 3D↔ligne + clavier + **solde D-018** (visuel). Banc inchangé.
 3. **S5.3** `brique_03_menu_defauts.md` — menu par ligne + marquage 3D/badge + mode aveugle (visuel). Banc inchangé.
 4. **S5.4** `brique_04_coupure_comm.md` — déconnexion TCP + contrôle comm global (backend+UI). **Banc serveur re-figé**.
@@ -42,8 +42,13 @@ S5.2→S5.3→S5.4 partagent `CarrouselScene.cs` ⇒ **strictement séquentiels*
 - **Incohérence 3D/PLC assumée** pendant la coupure (sim animée, `ret` figé) — message pédagogique voulu.
 
 ## Reste à faire
-Exécuter `/sprint open 05` (orchestration séquentielle autonome des 5 sous-sprints).
+Orchestrer S5.2 → S5.5 (séquentiels sur `CarrouselScene.cs`, sauf S5.5 dernier).
 
 ## REPRISE
-Conception terminée et committée. Prochaine action : `/clear` puis `/sprint open 05`. Chaque
-sous-sprint met à jour ce carnet (case cochée + total de banc) au fil de sa livraison.
+**S5.1 livrée, non committée** (l'orchestrateur commit). Fichiers neufs :
+`runtime/core/FaultSet.cs`, `runtime/core/FaultCatalog.cs`, `runtime/tests/FaultSetTests.cs`.
+Modifié : `runtime/core/CarrouselSimulation.cs` (expose `Faults`, applique les 3 familles dans `Tick` :
+verin coincé/rentré, convoyeur patine, capteur-bloqué masqué après encodage, `RetFrozen` = ni heartbeat
+ni publication). Banc : core 109 vert, serveur 6 vert. API consommée par S5.2/S5.3 (menu `FaultCatalog`,
+mutation `FaultSet.Apply`, marqueur `HasAnyFault`) et S5.4 (`RetFrozen` côté sim, la déconnexion TCP
+restant à faire). Prochaine action : `/sprint open 05` continue sur **S5.2**.
