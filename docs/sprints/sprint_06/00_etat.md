@@ -3,8 +3,7 @@
 > Tenu à jour à **chaque décision arrêtée**. Reprise à froid = relire `CLAUDE.md` + ce fichier.
 
 ## Phase courante
-**EXÉCUTION TERMINÉE (2026-07-18).** Les 3 sous-sprints sont livrés, vérifiés et committés
-(S6.1 `0fb75ea`, S6.2 `8005d7b`, S6.3 à committer). Prêt pour la clôture (`/sprint close 06`).
+**SPRINT CLÔTURÉ (2026-07-18).** Voir la section « État CLOS » et « REPRISE » en bas.
 
 ## Carte des sous-sprints (séquentiels stricts, aucun fichier partagé)
 - **S6.1** `brique_01_core.md` — [core/headless] `BlockerIneffective` + `ForceSet` + application Tick.
@@ -65,23 +64,26 @@ existant (colonne + délégué, patron rôdé S5.3). Aucun changement pivot, Arc
 Core 109 + serveur 10 = **119** ; 4 pytest full-chain verts. S6.1 relève le compte core (nouveaux
 cas) → nouveau témoin. S6.2/S6.3 : inchangé. Forçage inactif + BlockerIneffective inactif = nominal.
 
+## État CLOS (2026-07-18)
+Sprint **terminé et clôturé** (`/sprint close 06`). 3 sous-sprints livrés/committés/pushés
+(S6.1 `0fb75ea`, S6.2 `8005d7b`, S6.3 `c9834c8`) + bookkeeping (NOTES, journal, memory, dettes, backlog).
+Banc **core 121** (re-figé 109→121, prévu) + **serveur 10** = 131 C# ; build Godot 0 erreur ;
+`demo_sprint_06.ps1` parse OK (pré-vol refuse proprement). 4 pytest full-chain non impactés.
+**D-016 volet forçage soldé** ; **D-019 née** (cosmétique). NOTES : `docs/sprints/sprint_06/NOTES.md`.
+
 ## REPRISE
-**Banc core inchangé après S6.2 : 121 verts** (aucun code core touché, confirmé `dotnet test`). Build
-Godot 0 erreur / 0 avert. (`dotnet build runtime/DemonstrateurCarrousel.csproj` ; l'éditeur headless
-`--build-solutions` reste lent sur l'import d'assets → non concluant, mais la compilation C# est verte).
-Fichiers S6.2 touchés (2, aucun partagé avec S6.1) : `runtime/scenes/ElementPanel.cs`,
-`runtime/scenes/CarrouselScene.cs`. Livré : 7e colonne « Forçage » (MenuButton Auto/0/1 par signal
-`cmd` TOR, peuplé à l'ouverture, `—` pour capteur), cellule `cmd` force-aware (`PLC=x → forcé y` +
-teinte magenta), délégués `OnForce`/`ForceModeBySignal` (écriture IHM→`_sim.Forces`, thread principal,
-Arch A), touche `G` = menu forçage sélection, cyclage AZERTY `A`/`Z` (ex-`[`/`]`). `RefreshEmission`
-inchangé (forçage NON peint en 3D). `R` inchangé (dé-forçage via entrée Auto du menu).
+**Validation visuelle Nico restante** (seule chose non faite, car pas de session Godot interactive ici) —
+lancer la scène (F5) puis `demo_sprint_06.ps1` et vérifier :
+1. **Forçage sans PLC** : forcer KM1/YV1/YV2 (touche `G` ou colonne Forçage) → la machine bouge, écart
+   cmd `PLC=0 → forcé 1` (teinte magenta), KM1_AUX=1 non commandé.
+2. **Forçage malgré le PLC** : le forçage surclasse la commande du scanner ; forçage à 0 masque la commande.
+3. **Composition** forçage×défaut (le défaut physique gagne) ; **bloqueur inefficace** (palette traverse).
+4. **Piège AZERTY** : confirmer que `A`/`Z` (cyclage) et `G` (menu forçage) répondent aux touches marquées ;
+   sinon basculer `key.Keycode` → `KeyLabel` dans `CarrouselScene._UnhandledInput`.
+5. **Lisibilité D-019** : juger si les deux ▾ adjacents (Forçage + Défaut) prêtent à confusion → repolir si oui.
 
-**À valider manuellement (F5, non fait ici — pas de session Godot interactive)** : forçage YV1 sans PLC
-(tige sort, cmd `PLC=0 → forcé 1`), forçage contre PLC (`io_scanner_sim.py --run 0 --yv1 0` → tige reste
-sortie), retour Auto (teinte disparaît), et surtout le **piège AZERTY** : confirmer que `A`/`Z`/`G`
-(Keycode, dépendant du layout) répondent aux touches physiquement marquées ; sinon basculer sur `KeyLabel`.
-
-**Prochain : S6.3** (`brique_03_demo.md`, `demo_sprint_06.ps1`). Banc inchangé attendu.
+Suite projet : **Phase 4** (campagne M580 réelle, pilotée par l'automaticien) et volet **édition/catalogue**
+de D-016 (réveille D-005) restent ouverts au backlog.
 
 ### Rappel S6.1 (référence)
 Fichiers S6.1 : `runtime/core/ForceSet.cs` (neuf), `FaultSet.cs`, `FaultCatalog.cs`,

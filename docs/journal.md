@@ -6,6 +6,43 @@ surpris, décisions prises (reportées dans memory.md), état des tests.
 
 ---
 
+## 2026-07-18 — Clôture sprint 6 « Forçage de debug » (`/sprint close 06`)
+
+**Contexte** : les 3 sous-sprints orchestrés par `/sprint open 06` sont livrés, committés et pushés
+(`0fb75ea`, `8005d7b`, `c9834c8`). Séquence tenue S6.1 → S6.2 → S6.3, séquentielle stricte (aucun
+fichier partagé), un sous-agent cold-start par sous-sprint, banc re-vérifié par l'orchestrateur avant
+chaque commit. Le sous-agent S6.3 a été **coupé par la limite de session** après avoir écrit le script
+(20 Ko) ; l'orchestrateur a repris la finition (vérif d'exécution à blanc, ASCII, bookkeeping).
+
+**Action** : capacité de **forçage de commande** depuis l'IHM, **sans jamais écrire un mot du
+datastore** (ni `ret` ni `cmd`), pour piloter sans PLC et malgré le PLC.
+- **S6.1** cœur : classe pure `ForceSet` (miroir de `FaultSet`, sans verrou), forçage appliqué en tête
+  de `Tick` sur la **copie snapshot** des commandes (index `_cmdTorSignals`, symétrique de
+  `_retTorSignals`) → **masque à la lecture**, insensible à la réécriture `cmd` du scanner par
+  construction. Nouveau défaut `BlockerIneffective` (tige levée mais poste exclu de
+  `CollectBlockedStations` → palettes traversent). Banc core **109 → 121** (re-figeage prévu).
+- **S6.2** UI : colonne « Forçage » (MenuButton par signal `cmd`, Auto/0/1), écart PLC/effectif inline
+  dans la cellule `cmd` (teinte magenta), délégués `onForce`/`forceModeBySignal` (panneau générique),
+  touche `G` = menu forçage, **correction clavier AZERTY** `[`/`]` → `A`/`Z`. Banc inchangé.
+- **S6.3** `demo_sprint_06.ps1` : 8 phases (2 sans PLC = pilotage IHM pur via `-NoScan`, 5 avec scan =
+  forçage gagne + KM1_AUX non commandé + composition + bloqueur inefficace).
+
+**Surprise / point dur** : le point dur historique « forçage vs I/O Scanner » se dissout **par
+construction** (masque à la lecture sur copie défensive → le scanner ne peut rien effacer). Cellule
+panneau hétérogène (MenuButton vs Label) → `Row.Cells` en `Control[]`. Deux ▾ adjacents (Forçage +
+Défaut) pour préserver l'alignement → **dette D-019** cosmétique.
+
+**Tests** : banc **core 109 → 121** (S6.1, re-figeage prévu) + **serveur 10 inchangé** = **131 C#**,
+inchangé en S6.2/S6.3. Build Godot 0 erreur/0 avert. `demo_sprint_06.ps1` PARSE OK (pré-vol refuse
+proprement, exit 1). **4 pytest full-chain non impactés** (forçage + BlockerIneffective inactifs =
+nominal strict). **Validation visuelle Nico restante** (F5 + `demo_sprint_06.ps1` : forçage sans/contre
+PLC, écart cmd, touches A/Z/G sur AZERTY, lisibilité des deux ▾).
+
+**Dettes** : **D-016 volet forçage soldé** (le volet édition/catalogue reste reporté) ; **D-019 née**
+(cosmétique : deux ▾ adjacents). Décisions QCM consignées dans `memory.md`.
+
+---
+
 ## 2026-07-18 — Ouverture sprint 6 « Forçage de debug » (`/sprint open 06`)
 
 **Contexte** : conception figée (`f43a766`), 3 sous-sprints séquentiels stricts (aucun fichier
