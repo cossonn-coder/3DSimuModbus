@@ -10,7 +10,7 @@ Prêt pour `/sprint open 06`. Ce carnet est désormais tenu à jour par chaque s
 - **S6.1** `brique_01_core.md` — [core/headless] `BlockerIneffective` + `ForceSet` + application Tick.
   Banc core **re-figé 109 → 121** (+12). **LIVRÉ (2026-07-17)**, DoD cochée, build 0 erreur.
 - **S6.2** `brique_02_ui.md` — [visuel] colonne Forçage + écart cmd + touche `G` + AZERTY `A`/`Z`.
-  Banc inchangé. Dépend de S6.1. → à cocher.
+  Banc inchangé. Dépend de S6.1. **LIVRÉ (2026-07-17)**, DoD cochée, build Godot 0 erreur.
 - **S6.3** `brique_03_demo.md` — [observable] `demo_sprint_06.ps1` (sans PLC + avec scan). Dépend de S6.2. → à cocher.
 
 ## Intention (rappel amorce)
@@ -64,12 +64,27 @@ Core 109 + serveur 10 = **119** ; 4 pytest full-chain verts. S6.1 relève le com
 cas) → nouveau témoin. S6.2/S6.3 : inchangé. Forçage inactif + BlockerIneffective inactif = nominal.
 
 ## REPRISE
-**Nouveau témoin de banc core (après S6.1) : 121 verts** (ancien 109 + 12 cas : 5 ForceSet purs +
-7 injection sim). Serveur 10 inchangé → total C# = **131**. 4 pytest full-chain inchangés (non
-relancés en S6.1, headless). Fichiers S6.1 touchés : `runtime/core/ForceSet.cs` (neuf), `FaultSet.cs`,
-`FaultCatalog.cs`, `CarrouselSimulation.cs`, `runtime/tests/ForceSetTests.cs` (neuf),
-`runtime/tests/CarrouselSimulationTests.cs`, `runtime/tests/FaultSetTests.cs` (test catalogue renommé 6→7).
-Prochain : S6.2 (UI, banc inchangé).
+**Banc core inchangé après S6.2 : 121 verts** (aucun code core touché, confirmé `dotnet test`). Build
+Godot 0 erreur / 0 avert. (`dotnet build runtime/DemonstrateurCarrousel.csproj` ; l'éditeur headless
+`--build-solutions` reste lent sur l'import d'assets → non concluant, mais la compilation C# est verte).
+Fichiers S6.2 touchés (2, aucun partagé avec S6.1) : `runtime/scenes/ElementPanel.cs`,
+`runtime/scenes/CarrouselScene.cs`. Livré : 7e colonne « Forçage » (MenuButton Auto/0/1 par signal
+`cmd` TOR, peuplé à l'ouverture, `—` pour capteur), cellule `cmd` force-aware (`PLC=x → forcé y` +
+teinte magenta), délégués `OnForce`/`ForceModeBySignal` (écriture IHM→`_sim.Forces`, thread principal,
+Arch A), touche `G` = menu forçage sélection, cyclage AZERTY `A`/`Z` (ex-`[`/`]`). `RefreshEmission`
+inchangé (forçage NON peint en 3D). `R` inchangé (dé-forçage via entrée Auto du menu).
+
+**À valider manuellement (F5, non fait ici — pas de session Godot interactive)** : forçage YV1 sans PLC
+(tige sort, cmd `PLC=0 → forcé 1`), forçage contre PLC (`io_scanner_sim.py --run 0 --yv1 0` → tige reste
+sortie), retour Auto (teinte disparaît), et surtout le **piège AZERTY** : confirmer que `A`/`Z`/`G`
+(Keycode, dépendant du layout) répondent aux touches physiquement marquées ; sinon basculer sur `KeyLabel`.
+
+**Prochain : S6.3** (`brique_03_demo.md`, `demo_sprint_06.ps1`). Banc inchangé attendu.
+
+### Rappel S6.1 (référence)
+Fichiers S6.1 : `runtime/core/ForceSet.cs` (neuf), `FaultSet.cs`, `FaultCatalog.cs`,
+`CarrouselSimulation.cs`, `runtime/tests/ForceSetTests.cs` (neuf), `CarrouselSimulationTests.cs`,
+`FaultSetTests.cs`. Témoin 109 → 121 (+12). Serveur 10 inchangé → total C# = 131. 4 pytest full-chain.
 
 Conception close. Pour exécuter : `/sprint open 06` (orchestration séquentielle S6.1 → S6.2 → S6.3,
 un sous-agent en contexte vierge par sous-sprint). Chaque sous-agent lit `CLAUDE.md` + ce fichier +

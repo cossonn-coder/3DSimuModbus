@@ -36,6 +36,7 @@
 
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using CarrouselCore;
 using Godot;
 
@@ -69,8 +70,11 @@ public partial class ElementPanel : CanvasLayer
     // garde un tableau tabulaire meme quand les cellules sont courtes.
     // S5.3 : 6e colonne « Défaut » (libellé du/des défaut(s) actif(s) de l'élément, « — » si aucun).
     // Un MenuButton s'ajoute EN PLUS en bout de ligne (hors colonne mesuree) pour declencher/reparer.
-    private static readonly int[] ColWidths = { 46, 84, 132, 116, 210, 180 };
-    private static readonly string[] Headers = { "Repère", "Type", "État", "cmd %MW=bit", "ret %MW=bit", "Défaut" };
+    // S6.2 : 7e colonne « Forçage » — un MenuButton par ligne portant >=1 signal `cmd` TOR (forcer la
+    // valeur EFFECTIVE d'une commande), « — » pour une ligne sans commande (capteur). Le reste du
+    // tableau (AutoFitColumns, header, largeurs) suit automatiquement puisqu'il itere ces tableaux.
+    private static readonly int[] ColWidths = { 46, 84, 132, 116, 210, 180, 96 };
+    private static readonly string[] Headers = { "Repère", "Type", "État", "cmd %MW=bit", "ret %MW=bit", "Défaut", "Forçage" };
 
     // Abreviations d'affichage des types du pivot (lisibilite). Cle = valeur `Component.Type`
     // (convention pivot, pas un id carrousel) ; type inconnu => affiche tel quel. Purement cosmetique.
@@ -118,6 +122,21 @@ public partial class ElementPanel : CanvasLayer
     private System.Action<FaultCommand> _onFault = static _ => { };
     private System.Func<string, string> _faultLabelById = static _ => "—";
 
+    // --- Forçage (S6.2) : deux delegues fournis par la scene, miroir de _onFault / _faultLabelById -----
+    // _onForce : appele quand l'utilisateur choisit une entree du menu Forçage d'une ligne. La scene y
+    // route _sim.Forces.Apply(cmd) — ecriture IHM->forçage sur le thread principal, comme _onFault.
+    // _forceModeBySignal : rend le mode courant d'un signal `cmd` TOR (Auto / forcé 0 / forcé 1). C'est
+    // la SEULE source de la valeur forcee pour le panneau, interrogee au peuplement du menu ET a chaque
+    // Update pour teinter la cellule `cmd` et y afficher l'ecart PLC/effectif. Le panneau ne connait ni
+    // _sim ni le modele de forçage : uniquement ce pont (meme frontiere Arch A que faultLabelById).
+    private System.Action<ForceCommand> _onForce = static _ => { };
+    private System.Func<string, string, ForceMode> _forceModeBySignal = static (_, _) => ForceMode.Auto;
+
+    // Couleur de la cellule `cmd` quand la ligne porte au moins un forçage : convention « variable
+    // forcee » de l'automaticien. Choisie DISTINCTE du rouge defaut (emission 3D) et du vert d'etat —
+    // un magenta clair qui ne se confond avec aucun autre code couleur du projet.
+    private static readonly Color ForcedColor = new(0.95f, 0.45f, 0.95f);
+
     // Indicateur « MODE AVEUGLE » (S5.3) : rappel visuel que le marquage des defauts est masque alors
     // que les defauts restent REELLEMENT injectes (sinon on s'y perd). Bascule par SetBlindMode.
     private Label _blindIndicator = null!;
@@ -152,7 +171,12 @@ public partial class ElementPanel : CanvasLayer
         public required Component Comp;
         public required PanelContainer Container;
         public required Label Etat, Cmd, Ret;
-        public required Label[] Cells;
+
+        // Cells = les cellules de colonne dans l'ordre des colonnes, pour l'ajustement de largeur
+        // (AutoFitColumns). Type Control (et non Label) depuis S6.2 : la 7e cellule « Forçage » est un
+        // MenuButton (ligne a commande) ou un Label « — » (ligne sans commande) — les deux sont des
+        // Control ; AutoFitColumns ne MESURE que les Label (cf. la garde `is Label`).
+        public required Control[] Cells;
 
         // S5.3 : cellule « Défaut » (libelle du/des defaut(s) actif(s), rafraichie a chaque Update)
         // + MenuButton de declenchement/reparation + liste des commandes du popup (index -> commande,
@@ -160,6 +184,13 @@ public partial class ElementPanel : CanvasLayer
         public required Label Defaut;
         public required MenuButton Menu;
         public required List<FaultCommand> MenuCommands;
+
+        // S6.2 : menu « Forçage » de la ligne. NULL si la ligne n'a aucun signal `cmd` TOR (capteur) —
+        // dans ce cas la cellule Forçage est un simple Label « — » et OpenForceMenu reste sans effet.
+        // ForceCommands : index de l'item du popup -> ForceCommand, reconstruite a chaque ouverture
+        // (miroir de MenuCommands), pour que IndexPressed retrouve exactement la commande choisie.
+        public required MenuButton? ForceMenu;
+        public required List<ForceCommand> ForceCommands;
     }
 
     // Lignes indexees par id composant (pour HighlightRow) + liste ordonnee (pour Update dans
@@ -189,17 +220,23 @@ public partial class ElementPanel : CanvasLayer
     /// <param name="cylinderPositionById">Position 0..1 d'un verin par son id pivot (routage de la scene).</param>
     /// <param name="onFault">Appele avec la commande choisie dans le menu d'une ligne (S5.3, ligne -> sim).</param>
     /// <param name="faultLabelById">Libelle « Défaut » d'un composant (« — » si aucun / masque aveugle).</param>
+    /// <param name="onForce">Appele avec la commande choisie dans le menu Forçage d'une ligne (S6.2, ligne -> sim).</param>
+    /// <param name="forceModeBySignal">Mode de forçage courant d'un signal `cmd` (Auto/0/1) pour l'ecart cmd.</param>
     public void Build(PivotModel pivot, System.Action<string, bool> onRowHover,
                       System.Action<string> onRowClick,
                       System.Func<string, double> cylinderPositionById,
                       System.Action<FaultCommand> onFault,
-                      System.Func<string, string> faultLabelById)
+                      System.Func<string, string> faultLabelById,
+                      System.Action<ForceCommand> onForce,
+                      System.Func<string, string, ForceMode> forceModeBySignal)
     {
         _onRowHover = onRowHover;
         _onRowClick = onRowClick;
         _cylinderPositionById = cylinderPositionById;
         _onFault = onFault;
         _faultLabelById = faultLabelById;
+        _onForce = onForce;
+        _forceModeBySignal = forceModeBySignal;
 
         // Signaux de retour pour la coloration d'etat, resolus DEFENSIVEMENT (voir champ _sigKm1Aux).
         _sigKm1Aux = TryResolve(pivot, "conveyor", "ret_running");
@@ -330,7 +367,8 @@ public partial class ElementPanel : CanvasLayer
         foreach (var row in _rows)
         {
             row.Etat.Text = PhysicalState(row.Comp, cmd, ret);
-            row.Cmd.Text = ZoneAddresses(row.Comp, "cmd", cmd);
+            // S6.2 : la cellule `cmd` est force-aware (ecart PLC/effectif + teinte) ; `ret` reste nominal.
+            RefreshCmdCell(row.Cmd, row.Comp, cmd);
             row.Ret.Text = ZoneAddresses(row.Comp, "ret", ret);
             // S5.3 : la colonne « Défaut » est un MIROIR de l'etat de defauts de la sim (source de
             // verite cote scene) ; le mode aveugle y renvoie « — » sans lever le defaut reel.
@@ -453,6 +491,47 @@ public partial class ElementPanel : CanvasLayer
         return parts.Count == 0 ? "—" : string.Join("  ", parts);
     }
 
+    /// <summary>
+    /// Recompose la cellule « cmd » d'une ligne en la rendant FORCE-AWARE (S6.2). Pour chaque signal
+    /// `cmd` TOR : en mode Auto, le format nominal <c>[tag ]%MW&lt;mot&gt;.&lt;bit&gt;=&lt;plc&gt;</c> ;
+    /// en mode forcé, l'ecart <c>[tag ]%MW&lt;mot&gt;.&lt;bit&gt; : PLC=&lt;plc&gt; → forcé &lt;0|1&gt;</c>
+    /// (la valeur PLC vient du snapshot `cmd` = ce que le M580 a ecrit ; la valeur forcee vient du
+    /// delegue <c>_forceModeBySignal</c>, seule source cote panneau). Quand la ligne porte AU MOINS un
+    /// forçage, on TEINTE toute la cellule (<see cref="ForcedColor"/>) ; sinon on retire l'override
+    /// (retour a la couleur de theme). Le panneau ne touche PAS le datastore : lecture seule stricte.
+    /// </summary>
+    private void RefreshCmdCell(Label cell, Component comp, ushort[] words)
+    {
+        var parts = new List<string>();
+        bool anyForced = false;
+        foreach (var s in comp.Signals.Values)
+        {
+            if (s.Zone != "cmd" || !s.IsTor)
+                continue;
+            string prefix = s.Tag is null ? "" : s.Tag + " ";
+            int plc = s.ReadBit(words[s.WordRel]) ? 1 : 0;
+            ForceMode mode = _forceModeBySignal(comp.Id, s.Name);
+            if (mode == ForceMode.Auto)
+            {
+                parts.Add($"{prefix}%MW{s.AbsWord}.{s.Bit}={plc}");
+            }
+            else
+            {
+                anyForced = true;
+                int forced = mode == ForceMode.ForceHigh ? 1 : 0;
+                parts.Add($"{prefix}%MW{s.AbsWord}.{s.Bit} : PLC={plc} → forcé {forced}");
+            }
+        }
+
+        cell.Text = parts.Count == 0 ? "—" : string.Join("  ", parts);
+        // Teinte « variable forcee » ajoutee/retiree a chaque Update : idempotent (RemoveThemeColorOverride
+        // est sans effet si aucun override n'existe), donc pas d'etat a memoriser cote ligne.
+        if (anyForced)
+            cell.AddThemeColorOverride("font_color", ForcedColor);
+        else
+            cell.RemoveThemeColorOverride("font_color");
+    }
+
     // Lit un bit nomme d'un composant depuis la zone qui le porte (cmd/ret). Absent => faux (le
     // composant n'a pas ce signal : cas normal, ex. un capteur sans commande). Aucune exception.
     private static bool ReadNamed(Component comp, string name, ushort[] cmd, ushort[] ret)
@@ -487,7 +566,10 @@ public partial class ElementPanel : CanvasLayer
             if (c < _headerCells.Length)
                 want = System.Math.Max(want, MeasureTextWidth(_headerCells[c]));
             foreach (var row in _rows)
-                want = System.Math.Max(want, MeasureTextWidth(row.Cells[c]));
+                // S6.2 : la cellule Forçage peut etre un MenuButton (non mesurable comme du texte) ;
+                // on ne mesure que les Label, le MenuButton garde le plancher/entete de la colonne.
+                if (row.Cells[c] is Label lbl)
+                    want = System.Math.Max(want, MeasureTextWidth(lbl));
 
             if (want == _colWidths[c])
                 continue; // deja a la bonne largeur : rien a toucher (pas d'invalidation de layout)
@@ -549,7 +631,34 @@ public partial class ElementPanel : CanvasLayer
         var cmdCell = MakeCell("…", ColWidths[3]);
         var retCell = MakeCell("…", ColWidths[4]);
         var defautCell = MakeCell("—", ColWidths[5]);   // S5.3 : libelle du/des defaut(s) actif(s)
-        var cells = new[] { repere, type, etat, cmdCell, retCell, defautCell };
+
+        // --- Cellule « Forçage » (S6.2, 7e colonne) : MenuButton SI la ligne a >=1 signal `cmd` TOR ----
+        // Generique via le pivot : on teste la presence d'un signal `cmd` TOR (pas un id carrousel). Une
+        // ligne sans commande (capteur) recoit un simple « — ». Le popup est peuple A CHAQUE OUVERTURE
+        // (AboutToPopup) par PopulateForceMenu, comme le menu de defauts ; IndexPressed retraduit
+        // l'indice choisi en ForceCommand via forceCommands, transmise a la scene par _onForce.
+        bool hasCmdTor = comp.Signals.Values.Any(s => s.Zone == "cmd" && s.IsTor);
+        MenuButton? forceMenu = null;
+        var forceCommands = new List<ForceCommand>();
+        Control forceCell;
+        if (hasCmdTor)
+        {
+            forceMenu = new MenuButton { Text = "▾", MouseFilter = Control.MouseFilterEnum.Stop };
+            var forcePopup = forceMenu.GetPopup();
+            forcePopup.AboutToPopup += () => PopulateForceMenu(comp, forcePopup, forceCommands);
+            forcePopup.IndexPressed += index =>
+            {
+                if (index >= 0 && index < forceCommands.Count)
+                    _onForce(forceCommands[(int)index]);
+            };
+            forceCell = forceMenu;
+        }
+        else
+        {
+            forceCell = MakeCell("—", ColWidths[6]);
+        }
+
+        var cells = new Control[] { repere, type, etat, cmdCell, retCell, defautCell, forceCell };
         foreach (var c in cells)
             hbox.AddChild(c);
 
@@ -591,6 +700,7 @@ public partial class ElementPanel : CanvasLayer
         {
             Comp = comp, Container = container, Etat = etat, Cmd = cmdCell, Ret = retCell, Cells = cells,
             Defaut = defautCell, Menu = menu, MenuCommands = menuCommands,
+            ForceMenu = forceMenu, ForceCommands = forceCommands,
         };
     }
 
@@ -629,6 +739,60 @@ public partial class ElementPanel : CanvasLayer
     {
         if (_rowsById.TryGetValue(componentId, out var row))
             row.Menu.ShowPopup();
+    }
+
+    // --- Menu de forçage (S6.2) : peuplement + API d'ouverture ---------------------------------
+
+    /// <summary>
+    /// (Re)peuple le popup Forçage d'une ligne A CHAQUE ouverture, GENERIQUE via le pivot : pour chaque
+    /// signal `cmd` TOR du composant (ordre <c>OrderBy(Name)</c> = deterministe), trois items — Auto
+    /// (leve le forçage, retour valeur PLC), forcer a 0, forcer a 1 — chacun memorise comme
+    /// <see cref="ForceCommand"/> dans <paramref name="commands"/>, pour que l'indice choisi
+    /// (IndexPressed) retrouve exactement sa commande. Aucun separateur (il compterait comme un item et
+    /// decalerait les indices, cf. PopulateFaultMenu).
+    /// </summary>
+    private void PopulateForceMenu(Component comp, PopupMenu popup, List<ForceCommand> commands)
+    {
+        popup.Clear();
+        commands.Clear();
+
+        var cmdSignals = comp.Signals.Values
+            .Where(s => s.Zone == "cmd" && s.IsTor)
+            .OrderBy(s => s.Name);
+        foreach (var s in cmdSignals)
+        {
+            foreach (var mode in new[] { ForceMode.Auto, ForceMode.ForceLow, ForceMode.ForceHigh })
+            {
+                var cmd = new ForceCommand(comp.Id, s.Name, mode);
+                popup.AddItem(ForceCommandLabel(cmd, comp));
+                commands.Add(cmd);
+            }
+        }
+    }
+
+    /// <summary>Ouvre le popup de forçage d'une ligne (touche « G » cote scene sur la selection). Sans effet
+    /// si la ligne n'a aucun signal `cmd` TOR (ForceMenu null : capteur sans commande).</summary>
+    public void OpenForceMenu(string componentId)
+    {
+        if (_rowsById.TryGetValue(componentId, out var row) && row.ForceMenu is not null)
+            row.ForceMenu.ShowPopup();
+    }
+
+    /// <summary>
+    /// Libelle FR d'une commande de forçage (source unique de la traduction, esprit
+    /// <see cref="FaultCommandLabel"/>) : le repere du signal vient de <see cref="SignalLabel"/> (YV1,
+    /// KM1...). Mode inconnu => libelle brut (defensif, jamais d'exception).
+    /// </summary>
+    public static string ForceCommandLabel(ForceCommand cmd, Component comp)
+    {
+        string label = SignalLabel(comp, cmd.SignalName);
+        return cmd.Mode switch
+        {
+            ForceMode.Auto => $"auto {label}",
+            ForceMode.ForceLow => $"forcer {label} à 0",
+            ForceMode.ForceHigh => $"forcer {label} à 1",
+            _ => cmd.ToString(),
+        };
     }
 
     /// <summary>Montre/masque l'indicateur « MODE AVEUGLE » (le defaut reste injecte ; seul l'indice visuel change).</summary>

@@ -81,11 +81,12 @@ Rendre le forçage **pilotable et lisible** depuis le panneau, et corriger le cl
 
 ## Definition of Done (cochable)
 
-- [ ] Colonne « Forçage » + MenuButton par ligne à signal `cmd` ; Auto/0/1 par signal, peuplé à l'ouverture.
-- [ ] Cellule `cmd` force-aware (PLC → forcé) + teinte distincte quand forçage actif.
-- [ ] `OnForce`/`ForceModeBySignal` branchés ; forçage écrit dans `_sim.Forces` sur le thread principal.
-- [ ] Touche `G` ouvre le menu forçage de la sélection ; cyclage `A`/`Z` (plus `[`/`]`).
-- [ ] Build Godot **0 erreur** ; smoke headless `[panel] rows=5` **inchangé** ; banc **inchangé**.
+- [x] Colonne « Forçage » + MenuButton par ligne à signal `cmd` ; Auto/0/1 par signal, peuplé à l'ouverture.
+- [x] Cellule `cmd` force-aware (PLC → forcé) + teinte distincte quand forçage actif.
+- [x] `OnForce`/`ForceModeBySignal` branchés ; forçage écrit dans `_sim.Forces` sur le thread principal.
+- [x] Touche `G` ouvre le menu forçage de la sélection ; cyclage `A`/`Z` (plus `[`/`]`).
+- [x] Build Godot **0 erreur** (dotnet build du .csproj, 0 avert.) ; banc **inchangé** (121). Smoke headless
+      `[panel] rows=5` : code de trace `[panel] rows={_rows.Count}` inchangé → à confirmer par F5/headless (piège AZERTY).
 
 ## Vérif autosuffisante
 

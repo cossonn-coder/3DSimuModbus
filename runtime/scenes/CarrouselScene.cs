@@ -170,8 +170,8 @@ public partial class CarrouselScene : Node3D
     private string? _selectedId;
 
     // Ordre du pivot (cle = ordre d'insertion du dictionnaire = ordre du tableau JSON), capture a
-    // _Ready pour le cyclage clavier ]/[ . Meme ordre que les lignes du panneau : la selection
-    // clavier et la selection au clic parcourent donc la meme sequence d'elements (symetrie).
+    // _Ready pour le cyclage clavier A/Z (S6.2 ; ex-]/[ ). Meme ordre que les lignes du panneau : la
+    // selection clavier et la selection au clic parcourent donc la meme sequence d'elements (symetrie).
     private string[] _componentIds = System.Array.Empty<string>();
 
     // --- Injection de defauts (S5.3) ---------------------------------------------------------------
@@ -297,7 +297,10 @@ public partial class CarrouselScene : Node3D
         // S5.3 ajoute deux delegues : OnFault (menu -> ecriture dans _sim.Faults) et FaultLabelById
         // (libelle du/des defaut(s) actif(s) d'un element, masque par le mode aveugle). Le panneau
         // reste generique : il ne connait ni le carrousel ni le modele de defaut, seulement ces ponts.
-        _panel.Build(pivot, SetHover, SetSelected, CylinderPositionById, OnFault, FaultLabelById);
+        // S6.2 ajoute deux delegues symetriques pour le forçage : OnForce (menu Forçage -> ecriture dans
+        // _sim.Forces) et ForceModeBySignal (mode courant d'un signal `cmd` pour l'ecart de la cellule cmd).
+        _panel.Build(pivot, SetHover, SetSelected, CylinderPositionById, OnFault, FaultLabelById,
+                     OnForce, ForceModeBySignal);
     }
 
     /// <summary>
@@ -390,9 +393,10 @@ public partial class CarrouselScene : Node3D
     /// CONSOMME ses propres clics avant nous, donc un clic de ligne passe par le panneau (pas ici) et il
     /// n'y a pas de double-selection. Gestes : (a) clic gauche RELACHE non consomme -> selectionne
     /// l'element sous le curseur (<see cref="_hoveredId"/>), ou deselectionne si le vide ; (b) touches
-    /// ]/[ -> cyclage de la selection dans l'ordre du pivot ; (c, S5.3) B -> mode aveugle, R -> reparer
-    /// la selection, F/Espace -> ouvrir le menu de defauts de la selection. On cohabite avec OrbitCamera
-    /// (qui ne lit que molette/bouton du milieu/F11) : nos touches et le clic gauche ne sont pas les siens.
+    /// A/Z (S6.2, ex-]/[) -> cyclage de la selection dans l'ordre du pivot ; (c, S5.3) B -> mode aveugle,
+    /// R -> reparer la selection, F/Espace -> menu de defauts, G (S6.2) -> menu de forçage de la selection.
+    /// On cohabite avec OrbitCamera (qui ne lit que molette/bouton du milieu/F11) : nos touches et le clic
+    /// gauche ne sont pas les siens.
     /// </summary>
     public override void _UnhandledInput(InputEvent @event)
     {
@@ -410,8 +414,12 @@ public partial class CarrouselScene : Node3D
         {
             switch (key.Keycode)
             {
-                case Key.Bracketright: CycleSelection(+1); GetViewport().SetInputAsHandled(); break;
-                case Key.Bracketleft:  CycleSelection(-1); GetViewport().SetInputAsHandled(); break;
+                // A / Z : cyclage de la selection (precedent / suivant) dans l'ordre du pivot. Remplace
+                // les crochets [ / ] du sprint 5, inaccessibles sans AltGr sur clavier AZERTY (Nico). On
+                // garde `key.Keycode` (DEPENDANT du layout) : Key.A / Key.Z visent donc les touches
+                // physiquement marquees A / Z sur l'AZERTY (piege a confirmer en test : sinon KeyLabel).
+                case Key.Z: CycleSelection(+1); GetViewport().SetInputAsHandled(); break;
+                case Key.A: CycleSelection(-1); GetViewport().SetInputAsHandled(); break;
 
                 // B : bascule du mode aveugle (masque tous les marquages de defaut, defauts conserves).
                 case Key.B: ToggleBlindMode(); GetViewport().SetInputAsHandled(); break;
@@ -432,6 +440,16 @@ public partial class CarrouselScene : Node3D
                     if (_selectedId is not null)
                     {
                         _panel.OpenFaultMenu(_selectedId);
+                        GetViewport().SetInputAsHandled();
+                    }
+                    break;
+
+                // G : ouvre le menu de FORÇAGE de la ligne selectionnee (S6.2, adjacente a F = menu defaut).
+                // Sans effet si rien de selectionne, ou si la selection n'a aucun signal `cmd` (capteur).
+                case Key.G:
+                    if (_selectedId is not null)
+                    {
+                        _panel.OpenForceMenu(_selectedId);
                         GetViewport().SetInputAsHandled();
                     }
                     break;
@@ -477,6 +495,29 @@ public partial class CarrouselScene : Node3D
         // doit apparaitre a l'instant du declenchement pour qu'on VERIFIE qu'elle s'affiche bien.
         _panel.RefreshFaults(BuildFaultEntries());
     }
+
+    /// <summary>
+    /// Handler du menu de forçage (S6.2), symetrique de <see cref="OnFault"/> : applique la commande de
+    /// forçage a la simulation. C'est une ECRITURE IHM->sim sur le thread principal Godot (frontiere
+    /// Arch A : <see cref="ForceSet"/> est un objet pur, ni le thread serveur ni le datastore ne sont
+    /// touches ; le forçage est substitue a la LECTURE des commandes en tete de Tick, jamais ecrit).
+    /// On NE rafraichit PAS l'emission 3D : le forçage ne peint pas le canal emission (decision S6) —
+    /// son marquage vit dans le panneau (colonne Forçage + ecart teinte dans la cellule cmd, au ~6 Hz).
+    /// L'effet, lui, se VOIT dans le mouvement 3D (tige qui sort, convoyeur qui tourne). On rejoue tout
+    /// de meme l'encart conséquence (aucun effet propre au forçage, mais symetrie stricte avec OnFault).
+    /// </summary>
+    private void OnForce(ForceCommand cmd)
+    {
+        _sim.Forces.Apply(cmd);
+        _panel.RefreshFaults(BuildFaultEntries());
+    }
+
+    /// <summary>
+    /// Pont LECTURE SEULE (S6.2) : mode de forçage courant d'un signal `cmd` (Auto/forcé 0/forcé 1),
+    /// interroge par le panneau pour composer l'ecart PLC/effectif de la cellule cmd. Symetrique de
+    /// <see cref="FaultLabelById"/> : le panneau ignore tout de <c>_sim</c>, il ne connait que ce pont.
+    /// </summary>
+    private ForceMode ForceModeBySignal(string compId, string name) => _sim.Forces.GetForce(compId, name);
 
     /// <summary>
     /// Compose la liste (titre, explication) des defauts ACTIFS pour l'encart conséquence du panneau :
